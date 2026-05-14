@@ -1,0 +1,188 @@
+/* ── Global ── */
+:root {
+  --primary: #0d6efd;
+  --success: #198754;
+  --warning: #ffc107;
+  --danger: #dc3545;
+  --light-bg: #f8f9fa;
+  --border: #dee2e6;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #eef2f7;
+  color: #212529;
+  min-height: 100vh;
+}
+
+/* ── Navbar ── */
+.navbar-brand span {
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+/* ── Tab panes ── */
+.tab-pane { padding-top: 1.5rem; }
+
+/* ── Rate badge ── */
+#rate-badge {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* ── Comparison table ── */
+#quotation-table thead th {
+  background: #2c3e50;
+  color: #fff;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+#quotation-table tbody tr:hover { background: #e8f4fd; }
+
+.badge-substancja_czynna { background: #0d6efd; color: #fff; }
+.badge-opakowanie        { background: #6f42c1; color: #fff; }
+.badge-kapsula           { background: #20c997; color: #fff; }
+
+.badge-PLN { background: #198754; color: #fff; }
+.badge-EUR { background: #0dcaf0; color: #212529; }
+.badge-USD { background: #ffc107; color: #212529; }
+
+tr.best-price td { background: #d1e7dd !important; font-weight: 600; }
+tr.best-price td:first-child::before {
+  content: "★ ";
+  color: var(--success);
+}
+
+/* ── Cards ── */
+.card { border: none; box-shadow: var(--shadow); border-radius: 12px; }
+.card-header { border-radius: 12px 12px 0 0 !important; font-weight: 600; }
+
+/* ── Import preview ── */
+#preview-table-wrap { max-height: 340px; overflow-y: auto; }
+#preview-table thead th { background: #495057; color: #fff; font-size: 0.8rem; }
+
+/* ── Summary cards ── */
+.summary-card {
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  color: #fff;
+  min-width: 130px;
+}
+
+/* ── Spinner overlay ── */
+#spinner-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+#spinner-overlay.active { display: flex; }
+
+/* ── Toast ── */
+.toast-container { z-index: 10000; }
+
+/* ── Treomag table ── */
+#tm-table thead th { white-space: nowrap; }
+#tm-table tbody tr:hover td { background: #f8f9fa !important; }
+
+/* ── Order / Recommendation cards ── */
+.verdict-best    { border-color: #198754 !important; }
+.verdict-good    { border-color: #0d6efd !important; }
+.verdict-caution { border-color: #ffc107 !important; }
+.verdict-blocked { border-color: #dc3545 !important; opacity: .85; }
+
+#ord-suggestions .list-group-item:hover { background: #e8f4fd; cursor: pointer; }
+
+/* ── Dashboard opportunities table ── */
+#dash-opportunities table thead th { font-size: .81rem; }
+#dash-opportunities table tbody tr:hover td { background: #f0f7ff !important; }
+
+/* ── Pricelist tabs ── */
+.pl-expandable:hover td { background: #e8f4fd !important; }
+.pl-product-row td { vertical-align: middle; }
+.text-purple { color: #6f42c1 !important; }
+
+/* ── Responsive tweaks ── */
+@media (max-width: 576px) {
+  #quotation-table { font-size: 0.78rem; }
+}
+
+/* ── Supplier contacts ── */
+.sup-contact-row { transition: background .12s; }
+.sup-contact-row:has(input[type=radio]:checked) {
+  background: #e8f5e9 !important;
+  border-left: 3px solid #198754 !important;
+}
+.sup-item {
+  transition: background .12s;
+}
+.sup-item:hover {
+  background: #f0fff4 !important;
+}
+.sup-item.active {
+  background: #e8f5e9 !important;
+  border-left: 3px solid #198754;
+  font-weight: 600;
+}
+
+/* ── OCR dropzone ── */
+#ocr-dropzone:hover,
+#add-ocr-dropzone:hover {
+  background: #f3f0ff !important;
+}
+#ocr-dropzone.drag-over,
+#add-ocr-dropzone.drag-over {
+  background: #e8e0ff !important;
+  border-color: #5a2d9b !important;
+}
+
+/* ── General table improvements ── */
+.table-hover tbody tr:hover td { background: #f8f9ff; }
+.table > :not(caption) > * > * { padding: .45rem .6rem; }
+
+/* ── Toast improvements ── */
+.toast-container { z-index: 1090; }
+
+/* ── Better scrollbar ── */
+#sup-list::-webkit-scrollbar { width: 4px; }
+#sup-list::-webkit-scrollbar-track { background: #f1f1f1; }
+#sup-list::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+#sup-list::-webkit-scrollbar-thumb:hover { background: #999; }
+
+/* ── Pricelist count badge ── */
+.pl-count-badge {
+  font-size: .72rem;
+  background: #dee2e6;
+  color: #495057;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+/* ── Animation for new items ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn .2s ease; }
+
+/* ── File preview modal ── */
+#filePreviewModal .modal-header { background: #2c3e50; color: #fff; }
+#filePreviewModal .modal-header .btn-close { filter: invert(1); }
+#filePreviewModal .modal-body img { box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+
+/* ── OCR multi-file drop zone ── */
+.ocr-drag-over { background: #f3f0ff !important; border-color: #6f42c1 !important; }
+.ocr-file-item { transition: background .15s; }
+.ocr-file-item:hover { background: #f8f5ff !important; }
+
+/* ── Inline notes editing in pricelist ── */
+.pl-notes-cell:hover .pl-notes-icon { opacity: 1 !important; }
+.pl-notes-cell:hover { background: rgba(13,110,253,.05); }
+
+/* ── Delete button hover in pricelist ── */
+tr:hover .pl-del-btn { opacity: 0.6 !important; }
+.pl-del-btn:hover { opacity: 1 !important; }

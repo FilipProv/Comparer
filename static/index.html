@@ -1,0 +1,1491 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comparer — Porównywarka Wycen</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link href="/static/style.css" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ── Spinner overlay ── -->
+<div id="spinner-overlay">
+  <div class="spinner-border text-light" style="width:3rem;height:3rem;" role="status"></div>
+</div>
+
+<!-- ── Toast container ── -->
+<div class="toast-container position-fixed top-0 end-0 p-3" id="toast-container"></div>
+
+<!-- ── Navbar ── -->
+<nav class="navbar navbar-dark bg-dark px-3 py-2 mb-3 shadow-sm">
+  <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+    <i class="bi bi-bar-chart-line-fill fs-5"></i>
+    <span>Comparer</span>
+    <small class="text-secondary fw-normal ms-1" style="font-size:.75rem">Decyzje zakupowe</small>
+  </a>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <span id="rate-badge" class="badge bg-secondary">
+      <i class="bi bi-currency-exchange me-1"></i>ładowanie kursów…
+    </span>
+    <button class="btn btn-sm btn-outline-light" onclick="App.refreshRates()" title="Odśwież kursy">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Main container ── -->
+<div class="container-fluid px-3 pb-5">
+
+  <!-- Tab navigation -->
+  <ul class="nav nav-tabs mb-0" id="mainTabs">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-dashboard">
+        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-order">
+        <i class="bi bi-cart-check-fill me-1"></i>Zamówienie
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pricelist-sub">
+        <i class="bi bi-capsule me-1"></i>Cennik substancji
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pricelist-other">
+        <i class="bi bi-box-seam me-1"></i>Cennik pozostałe
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-suppliers" id="tab-suppliers-btn">
+        <i class="bi bi-building me-1"></i>Dostawcy
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-inbox" id="tab-inbox-btn">
+        <i class="bi bi-envelope-open me-1"></i>Skrzynka
+        <span id="inbox-badge" class="badge bg-danger ms-1" style="display:none">0</span>
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-compare">
+        <i class="bi bi-table me-1"></i>Wszystkie wyceny
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-add">
+        <i class="bi bi-plus-circle me-1"></i>Dodaj wycenę
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-import">
+        <i class="bi bi-file-earmark-arrow-up me-1"></i>Import
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-summary">
+        <i class="bi bi-graph-up me-1"></i>Podsumowanie
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content bg-white border border-top-0 rounded-bottom p-3 shadow-sm">
+
+    <!-- ════════════════════════════════════════════
+         TAB 1 — Dashboard
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade show active" id="tab-dashboard">
+
+      <!-- KPI strip -->
+      <div class="row g-3 mb-4" id="dash-kpis">
+        <div class="col-12 text-center text-secondary py-4">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Ładowanie…
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <!-- Savings opportunities -->
+        <div class="col-lg-7">
+          <div class="card h-100">
+            <div class="card-header fw-semibold" style="background:#1a252f;color:#fff">
+              <i class="bi bi-piggy-bank-fill me-2 text-warning"></i>Gdzie możesz zaoszczędzić
+              <span class="badge bg-warning text-dark ms-2" id="dash-opp-count">—</span>
+              <small class="text-secondary ms-2 fw-normal">produkty z co najmniej 2 dostawcami</small>
+            </div>
+            <div class="card-body p-0">
+              <div id="dash-opportunities" class="p-3 text-secondary small">Ładowanie…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick order launcher -->
+        <div class="col-lg-5">
+          <div class="card h-100">
+            <div class="card-header fw-semibold" style="background:#1a6b3c;color:#fff">
+              <i class="bi bi-cart-check-fill me-2"></i>Szybkie zamówienie
+            </div>
+            <div class="card-body">
+              <p class="text-muted small mb-3">Wybierz produkt z listy najlepszych okazji i przejdź do wyceny.</p>
+              <div class="mb-2">
+                <label class="form-label form-label-sm">Produkt</label>
+                <input type="text" class="form-control form-control-sm" id="dash-quick-product"
+                  placeholder="wpisz lub wybierz z listy okazji…" />
+              </div>
+              <div class="row g-2 mb-3">
+                <div class="col-7">
+                  <label class="form-label form-label-sm">Ilość</label>
+                  <input type="number" class="form-control form-control-sm" id="dash-quick-qty" min="0.001" step="any" placeholder="np. 25" />
+                </div>
+                <div class="col-5">
+                  <label class="form-label form-label-sm">Jedn.</label>
+                  <select class="form-select form-select-sm" id="dash-quick-unit">
+                    <option value="kg">kg</option>
+                    <option value="g">g</option>
+                    <option value="mg">mg</option>
+                    <option value="szt">szt</option>
+                    <option value="op">op</option>
+                    <option value="l">l</option>
+                    <option value="ml">ml</option>
+                  </select>
+                </div>
+              </div>
+              <button class="btn btn-success w-100" onclick="App.dashQuickOrder()">
+                <i class="bi bi-search me-2"></i>Sprawdź najlepszą ofertę
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB 2 — Zamówienie (Recommendations)
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-order">
+
+      <!-- Search bar -->
+      <div class="card mb-4 border-0" style="background:#f0f7ff">
+        <div class="card-body py-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label fw-semibold mb-1">Czego potrzebujesz?</label>
+              <div class="position-relative">
+                <input type="text" class="form-control form-control-lg" id="ord-product"
+                  placeholder="Wpisz nazwę składnika…"
+                  oninput="App.ordSuggest(this.value)" autocomplete="off" />
+                <div id="ord-suggestions" class="list-group position-absolute z-3"
+                  style="max-height:260px;overflow-y:auto;min-width:100%;top:100%"></div>
+              </div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold mb-1">Ilość</label>
+              <input type="number" class="form-control form-control-lg" id="ord-qty"
+                min="0.001" step="any" placeholder="np. 25" />
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold mb-1">Jednostka</label>
+              <select class="form-select form-select-lg" id="ord-unit">
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="mg">mg</option>
+                <option value="szt">szt</option>
+                <option value="op">op</option>
+                <option value="l">l</option>
+                <option value="ml">ml</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-success btn-lg w-100" onclick="App.runOrder()">
+                <i class="bi bi-search me-1"></i>Szukaj
+              </button>
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="ord-over-moq" />
+                <label class="form-check-label small" for="ord-over-moq">Poza MOQ</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div id="ord-results-wrap">
+        <div class="text-center text-secondary py-5">
+          <i class="bi bi-cart-check fs-1 d-block mb-2 opacity-25"></i>
+          Wpisz produkt i ilość, aby zobaczyć ranking dostawców.
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Cennik substancji
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-pricelist-sub">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h5 class="mb-0 fw-bold"><i class="bi bi-capsule me-2 text-primary"></i>Cennik substancji czynnych</h5>
+        <span class="badge bg-secondary" id="pl-sub-count">—</span>
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-outline-success btn-sm" onclick="App.plExport('substancja_czynna')">
+            <i class="bi bi-download me-1"></i>Eksport
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="App.loadPricelist('sub')" title="Odśwież">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="card mb-3 border-0 bg-light">
+        <div class="card-body py-2 px-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-sm-4 col-md-3">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-search me-1"></i>Szukaj produktu</label>
+              <input type="text" class="form-control form-control-sm" id="pl-sub-search"
+                placeholder="np. Vitamin C…" oninput="App.plFilter('sub')" />
+            </div>
+            <div class="col-sm-4 col-md-3">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-building me-1"></i>Dostawca</label>
+              <select class="form-select form-select-sm" id="pl-sub-supplier" onchange="App.plFilter('sub')">
+                <option value="">Wszyscy</option>
+              </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-truck me-1"></i>Incoterm</label>
+              <select class="form-select form-select-sm" id="pl-sub-incoterm" onchange="App.plFilter('sub')">
+                <option value="">Wszystkie</option>
+                <option value="DDP">DDP</option>
+                <option value="EXW">EXW</option>
+                <option value="FOB">FOB</option>
+                <option value="CIF">CIF</option>
+                <option value="DAP">DAP</option>
+              </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-sort-down me-1"></i>Sortuj</label>
+              <select class="form-select form-select-sm" id="pl-sub-sort" onchange="App.plFilter('sub')">
+                <option value="name">Nazwa A→Z</option>
+                <option value="price">Cena ↑</option>
+                <option value="offers">Ofert ↓</option>
+              </select>
+            </div>
+            <div class="col-auto d-flex flex-column gap-1">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="pl-sub-multi" onchange="App.plFilter('sub')" />
+                <label class="form-check-label form-label-sm mb-0" for="pl-sub-multi">Tylko 2+ dostawców</label>
+              </div>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="pl-sub-nomoq" onchange="App.plFilter('sub')" />
+                <label class="form-check-label form-label-sm mb-0" for="pl-sub-nomoq">Brak MOQ</label>
+              </div>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-secondary btn-sm" onclick="App.plClearFilters('sub')">
+                <i class="bi bi-x-lg me-1"></i>Wyczyść
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="pl-sub-wrap">
+        <div class="text-center text-secondary py-5">
+          <i class="bi bi-hourglass-split fs-2 d-block mb-2 opacity-25"></i>Ładowanie…
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Cennik pozostałe
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-pricelist-other">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h5 class="mb-0 fw-bold"><i class="bi bi-box-seam me-2 text-purple"></i>Cennik — opakowania i kapsułki</h5>
+        <span class="badge bg-secondary" id="pl-other-count">—</span>
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-outline-success btn-sm" onclick="App.plExport('other')">
+            <i class="bi bi-download me-1"></i>Eksport
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="App.loadPricelist('other')" title="Odśwież">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="card mb-3 border-0 bg-light">
+        <div class="card-body py-2 px-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-tag me-1"></i>Kategoria</label>
+              <div class="btn-group btn-group-sm" id="pl-other-cat-filter">
+                <button class="btn btn-outline-primary active" onclick="App.plSetCat('other','all',this)">Wszystkie</button>
+                <button class="btn btn-outline-primary" onclick="App.plSetCat('other','opakowanie',this)">Opakowania</button>
+                <button class="btn btn-outline-primary" onclick="App.plSetCat('other','kapsula',this)">Kapsułki</button>
+              </div>
+            </div>
+            <div class="col-sm-4 col-md-3">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-search me-1"></i>Szukaj</label>
+              <input type="text" class="form-control form-control-sm" id="pl-other-search"
+                placeholder="np. HPMC…" oninput="App.plFilter('other')" />
+            </div>
+            <div class="col-sm-4 col-md-3">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-building me-1"></i>Dostawca</label>
+              <select class="form-select form-select-sm" id="pl-other-supplier" onchange="App.plFilter('other')">
+                <option value="">Wszyscy</option>
+              </select>
+            </div>
+            <div class="col-sm-3 col-md-2">
+              <label class="form-label form-label-sm mb-1"><i class="bi bi-sort-down me-1"></i>Sortuj</label>
+              <select class="form-select form-select-sm" id="pl-other-sort" onchange="App.plFilter('other')">
+                <option value="name">Nazwa A→Z</option>
+                <option value="price">Cena ↑</option>
+                <option value="offers">Ofert ↓</option>
+              </select>
+            </div>
+            <div class="col-auto d-flex flex-column gap-1">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="pl-other-multi" onchange="App.plFilter('other')" />
+                <label class="form-check-label form-label-sm mb-0" for="pl-other-multi">Tylko 2+ dostawców</label>
+              </div>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="pl-other-nomoq" onchange="App.plFilter('other')" />
+                <label class="form-check-label form-label-sm mb-0" for="pl-other-nomoq">Brak MOQ</label>
+              </div>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-secondary btn-sm" onclick="App.plClearFilters('other')">
+                <i class="bi bi-x-lg me-1"></i>Wyczyść
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="pl-other-wrap">
+        <div class="text-center text-secondary py-5">
+          <i class="bi bi-hourglass-split fs-2 d-block mb-2 opacity-25"></i>Ładowanie…
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB 3 — All quotations
+    ════════════════════════════════════════════ -->
+    <!-- ════════════════════════════════════════════
+         TAB — Dostawcy
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-suppliers">
+      <div class="row g-0" style="min-height:600px">
+
+        <!-- LEFT: supplier list -->
+        <div class="col-lg-3 border-end" style="background:#f8f9fa">
+          <div class="p-2 border-bottom">
+            <input type="text" class="form-control form-control-sm" id="sup-search"
+              placeholder="Szukaj dostawcy…" oninput="App.supFilter()">
+          </div>
+          <div id="sup-list" style="overflow-y:auto;max-height:650px">
+            <div class="text-center text-secondary py-5">
+              <div class="spinner-border spinner-border-sm"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: supplier detail -->
+        <div class="col-lg-9">
+          <div id="sup-detail" class="p-3">
+            <div class="text-center text-secondary py-5" style="margin-top:80px">
+              <i class="bi bi-building fs-1 d-block mb-3 opacity-25"></i>
+              <p class="text-muted">Wybierz dostawcę z listy po lewej</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order modal -->
+      <div class="modal fade" id="orderModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+              <h5 class="modal-title"><i class="bi bi-envelope-fill me-2"></i>Wyślij zamówienie</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Do (e-mail)</label>
+                  <input type="email" class="form-control" id="ord-to" placeholder="kontakt@dostawca.pl">
+                  <div id="ord-to-hints" class="mt-1 text-muted" style="font-size:.8rem"></div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Temat</label>
+                  <input type="text" class="form-control" id="ord-subject" value="Zapytanie ofertowe / Zamówienie">
+                </div>
+                <div class="col-12">
+                  <label class="form-label fw-semibold">Treść wiadomości</label>
+                  <textarea class="form-control" id="ord-message" rows="5"></textarea>
+                </div>
+                <div class="col-12">
+                  <label class="form-label fw-semibold">Wybrane produkty</label>
+                  <div id="ord-products-preview" class="border rounded p-2 bg-light" style="font-size:.85rem"></div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label fw-semibold">Ilości do zamówienia</label>
+                  <div id="ord-qty-inputs"></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+              <button class="btn btn-success" onclick="App.supSendOrder()">
+                <i class="bi bi-send me-1"></i>Wyślij e-mail
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Key Modal -->
+      <div class="modal fade" id="openaiKeyModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#6f42c1,#0d6efd);color:#fff">
+              <h5 class="modal-title"><i class="bi bi-robot me-2"></i>Konfiguracja AI — odczyt wycen</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+
+              <!-- Groq (best free option) -->
+              <div class="p-4 border-bottom">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="badge bg-success fs-6 px-3 py-2">
+                    <i class="bi bi-stars me-1"></i>Darmowy · Zalecany
+                  </span>
+                  <h6 class="mb-0 fw-bold">Groq — Llama 4 Vision</h6>
+                  <span id="groq-status-badge" class="ms-auto"></span>
+                </div>
+                <div class="alert alert-success py-2 small mb-3">
+                  <i class="bi bi-check-circle me-1"></i>
+                  <strong>7 000 zapytań dziennie za darmo</strong> — bez karty kredytowej.<br>
+                  1. Wejdź na
+                  <a href="https://console.groq.com" target="_blank" class="fw-semibold">
+                    console.groq.com <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                  → zaloguj się (Google/GitHub)<br>
+                  2. Kliknij <strong>API Keys → Create API Key</strong> → skopiuj klucz
+                </div>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="bi bi-key"></i></span>
+                  <input type="password" class="form-control" id="groq-key-input"
+                    placeholder="gsk_...">
+                  <button class="btn btn-success" onclick="App.ocrSaveGroqKey()">
+                    <i class="bi bi-save me-1"></i>Zapisz
+                  </button>
+                </div>
+              </div>
+
+              <!-- Gemini (alternative) -->
+              <div class="p-4 border-bottom bg-light">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="badge bg-secondary fs-6 px-3 py-2">Alternatywa</span>
+                  <h6 class="mb-0 fw-bold text-muted">Google Gemini</h6>
+                  <span id="gemini-status-badge" class="ms-auto"></span>
+                </div>
+                <div class="text-muted small mb-3">
+                  Klucz z <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>
+                  (wymagane konto Google, może wymagać aktywacji API).
+                </div>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="bi bi-key"></i></span>
+                  <input type="password" class="form-control" id="gemini-key-input"
+                    placeholder="AIza...">
+                  <button class="btn btn-outline-secondary" onclick="App.ocrSaveGeminiKey()">
+                    <i class="bi bi-save me-1"></i>Zapisz
+                  </button>
+                </div>
+              </div>
+
+              <!-- OpenAI (paid) -->
+              <div class="p-4 bg-light">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="badge bg-warning text-dark fs-6 px-3 py-2">Płatny</span>
+                  <h6 class="mb-0 fw-bold text-muted">OpenAI GPT-4o</h6>
+                  <span id="openai-status-badge" class="ms-auto"></span>
+                </div>
+                <div class="text-muted small mb-3">
+                  Wymaga konta na <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>
+                  i doładowanych środków.
+                </div>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="bi bi-key"></i></span>
+                  <input type="password" class="form-control" id="openai-key-input"
+                    placeholder="sk-...">
+                  <button class="btn btn-outline-secondary" onclick="App.ocrSaveKey()">
+                    <i class="bi bi-save me-1"></i>Zapisz
+                  </button>
+                </div>
+              </div>
+
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Zamknij</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal fade" id="smtpModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-gear me-2"></i>Ustawienia e-mail i Pipedrive</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="alert alert-info small">
+                Dane są zapisywane w pliku <code>.env</code> na serwerze.
+              </div>
+              <div class="row g-3">
+                <div class="col-12"><hr class="my-1"><small class="text-muted fw-bold">SMTP — wysyłka e-mail</small></div>
+                <div class="col-md-8">
+                  <label class="form-label">SMTP Host</label>
+                  <input class="form-control form-control-sm" id="cfg-smtp-host" placeholder="smtp.gmail.com">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Port</label>
+                  <input class="form-control form-control-sm" id="cfg-smtp-port" placeholder="587">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Użytkownik (e-mail)</label>
+                  <input class="form-control form-control-sm" id="cfg-smtp-user" placeholder="twoj@email.pl">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Hasło / App Password</label>
+                  <input class="form-control form-control-sm" type="password" id="cfg-smtp-pass">
+                </div>
+                <div class="col-12"><hr class="my-1"><small class="text-muted fw-bold">Pipedrive CRM</small></div>
+                <div class="col-md-8">
+                  <label class="form-label">API Token</label>
+                  <input class="form-control form-control-sm" id="cfg-pd-token" placeholder="abc123...">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Domena</label>
+                  <input class="form-control form-control-sm" id="cfg-pd-domain" placeholder="firmaXYZ">
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+              <button class="btn btn-primary" onclick="App.saveSmtpConfig()">
+                <i class="bi bi-save me-1"></i>Zapisz
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-compare">
+
+      <!-- Filters -->
+      <div class="row g-2 mb-3 align-items-end">
+        <div class="col-sm-3 col-md-2">
+          <label class="form-label form-label-sm mb-1">Kategoria</label>
+          <select class="form-select form-select-sm" id="f-category">
+            <option value="">Wszystkie</option>
+            <option value="substancja_czynna">Substancja czynna</option>
+            <option value="opakowanie">Opakowanie</option>
+            <option value="kapsula">Kapsułka</option>
+          </select>
+        </div>
+        <div class="col-sm-4 col-md-3">
+          <label class="form-label form-label-sm mb-1">Produkt</label>
+          <input type="text" class="form-control form-control-sm" id="f-product" placeholder="szukaj…" />
+        </div>
+        <div class="col-sm-4 col-md-3">
+          <label class="form-label form-label-sm mb-1">Dostawca</label>
+          <input type="text" class="form-control form-control-sm" id="f-supplier" placeholder="szukaj…" />
+        </div>
+        <div class="col-sm-2 col-md-1">
+          <label class="form-label form-label-sm mb-1">Waluta</label>
+          <select class="form-select form-select-sm" id="f-currency">
+            <option value="">Wszystkie</option>
+            <option>PLN</option><option>EUR</option><option>USD</option>
+          </select>
+        </div>
+        <div class="col-sm-3 col-md-2">
+          <label class="form-label form-label-sm mb-1">Ważna od</label>
+          <input type="date" class="form-control form-control-sm" id="f-date-from" />
+        </div>
+        <div class="col-sm-3 col-md-2">
+          <label class="form-label form-label-sm mb-1">Ważna do</label>
+          <input type="date" class="form-control form-control-sm" id="f-date-to" />
+        </div>
+        <div class="col-auto d-flex gap-2">
+          <button class="btn btn-primary btn-sm" onclick="App.loadQuotations()">
+            <i class="bi bi-search me-1"></i>Szukaj
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="App.clearFilters()">
+            <i class="bi bi-x-lg"></i>
+          </button>
+          <button class="btn btn-outline-success btn-sm" onclick="App.exportExcel()">
+            <i class="bi bi-download me-1"></i>Eksport
+          </button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" id="quotation-table">
+          <thead>
+            <tr>
+              <th>Kategoria</th>
+              <th>Produkt</th>
+              <th>Dostawca</th>
+              <th>Ilość</th>
+              <th>Jedn.</th>
+              <th>Cena oryg.</th>
+              <th>Waluta</th>
+              <th>Kurs</th>
+              <th>Cena PLN</th>
+              <th class="text-success">PLN/jedn. ▲</th>
+              <th>Incoterm</th>
+              <th>Typ ceny</th>
+              <th>Data wyceny</th>
+              <th>Ważna do</th>
+              <th>E-mail</th>
+              <th>Uwagi</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="quotation-tbody">
+            <tr><td colspan="16" class="text-center text-secondary py-4">
+              <i class="bi bi-hourglass-split me-2"></i>Ładowanie…
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="table-footer" class="text-secondary mt-2 small"></div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Add quotation (manual entry)
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-add">
+
+      <!-- Mode switcher -->
+      <ul class="nav nav-pills mb-4 justify-content-center gap-2" id="addModeTabs">
+        <li class="nav-item">
+          <button class="nav-link active px-4" data-bs-toggle="pill" data-bs-target="#add-mode-file"
+            id="add-mode-file-btn">
+            <i class="bi bi-stars me-2"></i>Wgraj plik (OCR / AI)
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link px-4" data-bs-toggle="pill" data-bs-target="#add-mode-text"
+            id="add-mode-text-btn">
+            <i class="bi bi-clipboard-fill me-2"></i>Wklej tekst
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link px-4" data-bs-toggle="pill" data-bs-target="#add-mode-manual"
+            id="add-mode-manual-btn">
+            <i class="bi bi-pencil-square me-2"></i>Wpisz ręcznie
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+
+        <!-- ══ MODE 1: FILE / OCR ══ -->
+        <div class="tab-pane fade show active" id="add-mode-file">
+          <div class="row g-3 justify-content-center">
+
+            <!-- Upload column -->
+            <div class="col-lg-4">
+              <div class="card h-100">
+                <div class="card-header text-white d-flex align-items-center gap-2"
+                  style="background:linear-gradient(135deg,#6f42c1,#0d6efd)">
+                  <i class="bi bi-stars fs-5"></i>
+                  <div>
+                    <div class="fw-semibold">OCR / AI — odczyt wyceny</div>
+                    <div style="font-size:.75rem;opacity:.85">GPT-4o Vision</div>
+                  </div>
+                </div>
+                <div class="card-body">
+
+                  <!-- Key warning -->
+                  <div id="add-ocr-key-warning" class="alert alert-warning py-2 small mb-3">
+                    <i class="bi bi-key me-1"></i>Brak klucza OpenAI.
+                    <a href="#" onclick="App.ocrShowKeyModal();return false">Skonfiguruj →</a>
+                  </div>
+
+                  <!-- Accepted formats -->
+                  <div class="d-flex flex-wrap gap-1 mb-3">
+                    <span class="badge bg-light text-dark border"><i class="bi bi-image me-1"></i>Zdjęcie</span>
+                    <span class="badge bg-light text-dark border"><i class="bi bi-file-earmark-image me-1"></i>Screenshot</span>
+                    <span class="badge bg-light text-dark border"><i class="bi bi-filetype-pdf me-1"></i>PDF</span>
+                    <span class="badge bg-light text-dark border"><i class="bi bi-file-earmark-excel me-1"></i>Excel</span>
+                    <span class="badge bg-light text-dark border"><i class="bi bi-file-earmark-word me-1"></i>Word</span>
+                    <span class="badge bg-light text-dark border"><i class="bi bi-file-text me-1"></i>TXT</span>
+                  </div>
+
+                  <!-- Drop zone -->
+                  <div id="add-ocr-dropzone"
+                    class="border border-2 border-dashed rounded-3 text-center p-4 mb-2"
+                    style="cursor:pointer;border-color:#6f42c1!important"
+                    onclick="document.getElementById('add-ocr-file-input').click()"
+                    ondragover="event.preventDefault();this.classList.add('ocr-drag-over')"
+                    ondragleave="this.classList.remove('ocr-drag-over')"
+                    ondrop="App.addOcrDrop(event)">
+                    <i class="bi bi-cloud-arrow-up fs-1 text-purple d-block mb-2"></i>
+                    <div class="fw-semibold text-purple">Upuść pliki lub kliknij</div>
+                    <div class="text-muted small mt-1">PNG, JPG, PDF, XLSX, DOCX, TXT… — możesz wybrać kilka naraz</div>
+                  </div>
+                  <input type="file" id="add-ocr-file-input" style="display:none" multiple
+                    accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.xlsx,.xls,.txt,.csv,.docx,.doc"
+                    onchange="App.addOcrFileSelected(this)">
+
+                  <!-- Selected files list -->
+                  <div id="add-ocr-file-list" class="mb-3" style="display:none">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="small fw-semibold text-muted">Wybrane pliki</span>
+                      <button class="btn btn-link btn-sm p-0 text-danger" onclick="App.addOcrClear()">
+                        <i class="bi bi-x-circle me-1"></i>Wyczyść
+                      </button>
+                    </div>
+                    <div id="add-ocr-file-items" class="d-flex flex-column gap-1"></div>
+                  </div>
+
+                  <!-- Supplier override -->
+                  <div class="mb-3">
+                    <label class="form-label form-label-sm fw-semibold">Dostawca <span class="text-muted fw-normal">(opcjonalnie — nadpisuje AI)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="add-ocr-supplier"
+                      list="add-ocr-supplier-list" placeholder="np. Aogubio">
+                    <datalist id="add-ocr-supplier-list"></datalist>
+                    <div id="add-ocr-supplier-hint" class="mt-1"></div>
+                  </div>
+
+                  <!-- Analyze btn -->
+                  <button class="btn w-100 fw-semibold" id="add-ocr-analyze-btn"
+                    onclick="App.addOcrAnalyze()" disabled
+                    style="background:#6f42c1;color:#fff;border:none">
+                    <i class="bi bi-stars me-2"></i>Analizuj i wyodrębnij wycenę
+                  </button>
+
+                  <!-- Progress -->
+                  <div id="add-ocr-progress" class="text-center mt-3" style="display:none">
+                    <div class="spinner-border text-purple"></div>
+                    <div class="small text-muted mt-2">Wysyłam do GPT-4o…</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Results column -->
+            <div class="col-lg-8">
+              <div class="card h-100">
+                <div class="card-header d-flex align-items-center gap-2" style="background:#2c3e50;color:#fff">
+                  <i class="bi bi-list-check"></i>
+                  <span class="fw-semibold">Wyodrębnione pozycje</span>
+                  <span id="add-ocr-count" class="badge bg-light text-dark ms-1" style="display:none"></span>
+                  <div class="ms-auto d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-light" id="add-ocr-selall-btn"
+                      onclick="App.addOcrSelectAll()" style="display:none">Zaznacz wszystkie</button>
+                    <button class="btn btn-sm btn-success fw-semibold" id="add-ocr-import-btn"
+                      onclick="App.addOcrConfirm()" style="display:none">
+                      <i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body p-0" id="add-ocr-results">
+                  <div class="text-center text-muted py-5 px-3">
+                    <i class="bi bi-stars fs-1 d-block mb-3 opacity-25 text-purple"></i>
+                    <p class="mb-1 fw-semibold">Wgraj plik z wyceną</p>
+                    <p class="small">Obsługujemy zdjęcia emaili, screenshoty, PDF-y, Excele i dokumenty Word.<br>
+                    AI automatycznie odczyta produkty, ceny, ilości i waluty.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ MODE 2: PASTE TEXT ══ -->
+        <div class="tab-pane fade" id="add-mode-text">
+          <div class="row g-3 justify-content-center">
+            <div class="col-lg-4">
+              <div class="card h-100">
+                <div class="card-header text-white d-flex align-items-center gap-2"
+                  style="background:linear-gradient(135deg,#198754,#0d6efd)">
+                  <i class="bi bi-clipboard-fill fs-5"></i>
+                  <div>
+                    <div class="fw-semibold">Wklej treść wyceny</div>
+                    <div style="font-size:.75rem;opacity:.85">email, PDF skopiowany, arkusz…</div>
+                  </div>
+                </div>
+                <div class="card-body d-flex flex-column gap-3">
+
+                  <div>
+                    <label class="form-label form-label-sm fw-semibold">Treść do analizy</label>
+                    <textarea id="paste-text-input" class="form-control" rows="12"
+                      placeholder="Wklej tutaj treść maila, cennika lub innego dokumentu z wycenami...&#10;&#10;Np.:&#10;Vitamin C 25kg – 8.50 EUR/kg MOQ 25kg&#10;Magnesium citrate 50kg – 6.20 EUR/kg"
+                      oninput="App.pasteTextChanged()"></textarea>
+                    <div class="text-muted small mt-1">
+                      <span id="paste-text-chars">0</span> znaków
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="form-label form-label-sm fw-semibold">Dostawca <span class="text-muted fw-normal">(opcjonalnie)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="paste-text-supplier"
+                      list="add-ocr-supplier-list" placeholder="np. Aogubio">
+                  </div>
+
+                  <div class="mt-auto">
+                    <button class="btn w-100 fw-semibold" id="paste-text-analyze-btn"
+                      onclick="App.addOcrAnalyzeText()" disabled
+                      style="background:#198754;color:#fff;border:none">
+                      <i class="bi bi-stars me-2"></i>Analizuj i wyodrębnij wycenę
+                    </button>
+                    <div id="paste-text-progress" class="text-center mt-3" style="display:none">
+                      <div class="spinner-border" style="color:#198754"></div>
+                      <div class="small text-muted mt-2">AI analizuje tekst…</div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            <!-- Results column — shared with file mode -->
+            <div class="col-lg-8">
+              <div class="card h-100">
+                <div class="card-header d-flex align-items-center gap-2" style="background:#2c3e50;color:#fff">
+                  <i class="bi bi-list-check"></i>
+                  <span class="fw-semibold">Wyodrębnione pozycje</span>
+                  <span class="badge bg-secondary ms-auto" id="paste-text-count">0</span>
+                </div>
+                <div class="card-body p-0">
+                  <div id="paste-text-results" class="p-4 text-center text-muted">
+                    <i class="bi bi-clipboard fs-1 d-block mb-2 opacity-25"></i>
+                    Wklej tekst i kliknij „Analizuj"
+                  </div>
+                </div>
+                <div class="card-footer d-flex gap-2 justify-content-end" id="paste-text-footer" style="display:none!important">
+                  <button class="btn btn-sm btn-outline-secondary" onclick="App.pasteTextClear()">
+                    <i class="bi bi-x-circle me-1"></i>Wyczyść
+                  </button>
+                  <button class="btn btn-sm btn-success fw-semibold" onclick="App.pasteTextSave()" id="paste-text-save-btn" disabled>
+                    <i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ MODE 3: MANUAL FORM ══ -->
+        <div class="tab-pane fade" id="add-mode-manual">
+          <div class="row justify-content-center">
+            <div class="col-lg-7">
+              <div class="card">
+                <div class="card-header bg-primary text-white">
+                  <i class="bi bi-pencil-square me-2"></i>Nowa wycena — formularz
+                </div>
+                <div class="card-body">
+                  <form id="add-form" onsubmit="App.submitAddForm(event)">
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <label class="form-label">Kategoria *</label>
+                        <select class="form-select" name="category" required>
+                          <option value="">Wybierz…</option>
+                          <option value="substancja_czynna">Substancja czynna</option>
+                          <option value="opakowanie">Opakowanie</option>
+                          <option value="kapsula">Kapsułka</option>
+                        </select>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Nazwa produktu *</label>
+                        <input type="text" class="form-control" name="product_name" required
+                          placeholder="np. Paracetamol"
+                          list="form-product-list" autocomplete="off" />
+                        <datalist id="form-product-list"></datalist>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Dostawca *</label>
+                        <input type="text" class="form-control" name="supplier" required
+                          placeholder="np. Firma X Sp. z o.o."
+                          list="form-supplier-list" autocomplete="off" />
+                        <datalist id="form-supplier-list"></datalist>
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label">Ilość *
+                          <small class="text-muted fw-normal">(przy jakiej cena)</small>
+                        </label>
+                        <input type="number" class="form-control" name="quantity" min="0.0001" step="any" required placeholder="np. 1" />
+                      </div>
+                      <div class="col-md-2">
+                        <label class="form-label">MOQ
+                          <small class="text-muted fw-normal">(min. zamów.)</small>
+                        </label>
+                        <input type="number" class="form-control" name="moq" min="0.0001" step="any" placeholder="np. 0.5" />
+                      </div>
+                      <div class="col-md-1" style="min-width:90px">
+                        <label class="form-label">Jednostka *</label>
+                        <select class="form-select" name="unit" required>
+                          <option value="">—</option>
+                          <option>kg</option><option>g</option><option>mg</option>
+                          <option>szt</option><option>op</option><option>l</option><option>ml</option>
+                        </select>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Cena *</label>
+                        <input type="number" class="form-control" name="price_original" min="0.0001" step="any" required />
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Waluta *</label>
+                        <select class="form-select" name="currency" required onchange="App.onCurrencyChange(this)">
+                          <option value="">—</option>
+                          <option>PLN</option><option>EUR</option><option>USD</option>
+                        </select>
+                      </div>
+                      <div class="col-md-4" id="manual-rate-wrap" style="display:none">
+                        <label class="form-label">Kurs ręczny</label>
+                        <input type="number" class="form-control" name="manual_rate" min="0.001" step="any" placeholder="np. 4.27" />
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Data wyceny</label>
+                        <input type="date" class="form-control" name="quote_date" />
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">E-mail kontaktowy</label>
+                        <input type="email" class="form-control" name="contact_email" placeholder="np. oferty@dostawca.pl" />
+                      </div>
+                      <div class="col-md-2">
+                        <label class="form-label">Typ ceny</label>
+                        <select class="form-select" name="price_type">
+                          <option value="netto" selected>Netto</option>
+                          <option value="brutto">Brutto</option>
+                        </select>
+                      </div>
+                      <div class="col-12">
+                        <label class="form-label">Uwagi</label>
+                        <textarea class="form-control" name="notes" rows="2" placeholder="opcjonalnie…"></textarea>
+                      </div>
+                    </div>
+                    <div class="mt-4 d-flex gap-2">
+                      <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save me-1"></i>Zapisz wycenę
+                      </button>
+                      <button type="reset" class="btn btn-outline-secondary">
+                        <i class="bi bi-x me-1"></i>Wyczyść
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Skrzynka wycen (IMAP Inbox)
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-inbox">
+      <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <h5 class="mb-0"><i class="bi bi-envelope-open me-2"></i>Skrzynka wycen</h5>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <span id="inbox-imap-info" class="text-muted small"></span>
+          <button class="btn btn-sm btn-outline-primary" onclick="App.inboxCheck()">
+            <i class="bi bi-arrow-repeat me-1"></i>Sprawdź teraz
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="App.inboxTestConnection()">
+            <i class="bi bi-plug me-1"></i>Test połączenia
+          </button>
+          <div class="btn-group btn-group-sm" id="inbox-filter-btns">
+            <button class="btn btn-outline-primary active" data-filter="active" onclick="App.inboxSetFilter('active',this)">Do przejrzenia</button>
+            <button class="btn btn-outline-success" data-filter="confirmed" onclick="App.inboxSetFilter('confirmed',this)">Potwierdzone</button>
+            <button class="btn btn-outline-secondary" data-filter="all" onclick="App.inboxSetFilter('all',this)">Wszystkie</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="inbox-list-wrap">
+        <div class="text-center text-muted py-5" id="inbox-empty">
+          <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+          Brak wiadomości — kliknij „Sprawdź teraz" aby pobrać maile.
+        </div>
+        <div id="inbox-list"></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Import
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-import">
+
+      <ul class="nav nav-pills mb-3" id="importSubTabs">
+        <li class="nav-item">
+          <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-import-map">
+            <i class="bi bi-magic me-1"></i>Mapuj plik dostawcy
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-import-generic">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>Uniwersalny import
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-import-ocr">
+            <i class="bi bi-stars me-1"></i>OCR / AI
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- ── Mapuj plik dostawcy ── -->
+        <div class="tab-pane fade show active" id="sub-import-map">
+
+          <div class="alert alert-info py-2 small mb-3">
+            <i class="bi bi-magic me-2"></i>
+            Wgraj Excel od dostawcy w <strong>dowolnym formacie</strong> — program automatycznie spróbuje dopasować kolumny
+            do naszych pól. Możesz poprawić każde dopasowanie przed importem.
+          </div>
+
+          <!-- Step 1: Upload -->
+          <div class="card mb-3" id="map-step1">
+            <div class="card-header" style="background:#2c3e50;color:#fff">
+              <span class="badge bg-warning text-dark me-2">1</span>Wgraj plik dostawcy
+            </div>
+            <div class="card-body">
+              <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                  <label class="form-label">Plik Excel (.xlsx / .xls)</label>
+                  <input class="form-control" type="file" id="map-file" accept=".xlsx,.xls" />
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Dostawca (jeśli brak w pliku)</label>
+                  <input type="text" class="form-control" id="map-supplier-override" placeholder="opcjonalnie" />
+                </div>
+                <div class="col-md-2">
+                  <button class="btn btn-primary w-100" onclick="App.mapDetect()">
+                    <i class="bi bi-search me-1"></i>Analizuj
+                  </button>
+                </div>
+              </div>
+              <div class="mt-2">
+                <a href="/api/export/template" class="btn btn-outline-success btn-sm">
+                  <i class="bi bi-download me-1"></i>Pobierz nasz szablon Excel
+                </a>
+                <span class="text-muted small ms-2">← jeśli chcesz wypełnić gotowy formularz zamiast mapować</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Mapping table (hidden until file analyzed) -->
+          <div id="map-step2" style="display:none">
+            <div class="card mb-3">
+              <div class="card-header" style="background:#1a6b3c;color:#fff">
+                <span class="badge bg-warning text-dark me-2">2</span>Dopasuj kolumny
+                <small class="ms-2 fw-normal opacity-75">Sprawdź i popraw propozycje — zielone = wysoka pewność</small>
+              </div>
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0" id="map-table">
+                    <thead>
+                      <tr style="background:#34495e;color:#fff;font-size:.82rem">
+                        <th class="ps-3">Kolumna dostawcy</th>
+                        <th>Przykładowe wartości</th>
+                        <th style="width:260px">Nasze pole</th>
+                        <th style="width:90px" class="text-center">Pewność</th>
+                      </tr>
+                    </thead>
+                    <tbody id="map-table-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3: Preview + confirm -->
+            <div class="card" id="map-step3">
+              <div class="card-header" style="background:#7d3c98;color:#fff">
+                <span class="badge bg-warning text-dark me-2">3</span>Podgląd i import
+              </div>
+              <div class="card-body">
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                  <button class="btn btn-outline-primary" onclick="App.mapPreview()">
+                    <i class="bi bi-eye me-1"></i>Podgląd wyników
+                  </button>
+                  <button class="btn btn-outline-success" id="map-export-btn" onclick="App.mapExportTemplate()" disabled>
+                    <i class="bi bi-file-earmark-arrow-down me-1"></i>Pobierz jako szablon Excel
+                  </button>
+                  <button class="btn btn-success" id="map-import-btn" onclick="App.mapImport()" disabled>
+                    <i class="bi bi-check2-circle me-1"></i>Importuj bezpośrednio do bazy
+                  </button>
+                </div>
+
+                <div class="alert alert-light border py-2 small mb-3" id="map-flow-hint" style="display:none">
+                  <div class="fw-semibold mb-1"><i class="bi bi-signpost-split me-1"></i>Dwie ścieżki do wyboru:</div>
+                  <div class="row g-2">
+                    <div class="col-md-6">
+                      <div class="p-2 rounded" style="background:#d1e7dd">
+                        <strong>A) Pobierz → sprawdź → wgraj</strong><br>
+                        <span class="text-muted">Pobierz Excel w naszym formacie, otwórz, popraw ręcznie co trzeba,
+                        zapisz i wgraj przez <em>Import → Własne pliki / Uniwersalny import</em>.<br>
+                        Polecane gdy chcesz sprawdzić dane przed zapisem.</span>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="p-2 rounded" style="background:#cfe2ff">
+                        <strong>B) Importuj bezpośrednio</strong><br>
+                        <span class="text-muted">Dane trafiają od razu do bazy bez pośredniego pliku.
+                        Szybciej, ale bez możliwości korekty w Excelu.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="map-errors" class="mb-2"></div>
+                <div id="map-preview-wrap"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="tab-pane fade" id="sub-import-generic">
+          <div class="row g-3">
+            <div class="col-lg-5">
+              <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                  <i class="bi bi-file-earmark-arrow-up me-2"></i>Import uniwersalny
+                </div>
+                <div class="card-body">
+                  <p class="text-muted small mb-3">Wgraj plik .xlsx wg szablonu.</p>
+                  <a href="/api/export/template" class="btn btn-outline-success btn-sm mb-3">
+                    <i class="bi bi-download me-1"></i>Pobierz szablon Excel
+                  </a>
+                  <div class="mb-3">
+                    <input class="form-control" type="file" id="import-file" accept=".xlsx,.xls" />
+                  </div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-6">
+                      <label class="form-label form-label-sm">Kurs EUR/PLN (opcja)</label>
+                      <input type="number" class="form-control form-control-sm" id="imp-eur" step="any" min="0" placeholder="auto NBP" />
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm">Kurs USD/PLN (opcja)</label>
+                      <input type="number" class="form-control form-control-sm" id="imp-usd" step="any" min="0" placeholder="auto NBP" />
+                    </div>
+                  </div>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-outline-primary btn-sm" onclick="App.previewImport()">
+                      <i class="bi bi-eye me-1"></i>Podgląd
+                    </button>
+                    <button class="btn btn-success btn-sm" id="confirm-import-btn" onclick="App.confirmImport()" disabled>
+                      <i class="bi bi-check2-circle me-1"></i>Zatwierdź
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-7">
+              <div class="card h-100">
+                <div class="card-header bg-secondary text-white">
+                  <i class="bi bi-table me-2"></i>Podgląd wierszy
+                </div>
+                <div class="card-body p-2">
+                  <div id="import-errors" class="mb-2"></div>
+                  <div id="preview-table-wrap">
+                    <p class="text-muted small p-2">Wgraj plik i kliknij „Podgląd".</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── OCR / AI import ── -->
+        <div class="tab-pane fade" id="sub-import-ocr">
+          <div class="row g-3">
+
+            <!-- LEFT: upload + settings -->
+            <div class="col-lg-4">
+              <div class="card mb-3">
+                <div class="card-header text-white" style="background:linear-gradient(135deg,#6f42c1,#0d6efd)">
+                  <i class="bi bi-stars me-2"></i>OCR / AI — odczyt wyceny
+                </div>
+                <div class="card-body">
+                  <p class="small text-muted mb-3">
+                    Wgraj <strong>dowolny plik</strong> — zdjęcie, screenshot, PDF, Excel, Word, TXT.<br>
+                    AI (GPT-4o) automatycznie odczyta wszystkie pozycje cenowe.
+                  </p>
+
+                  <!-- API key warning -->
+                  <div id="ocr-key-warning" class="alert alert-warning py-2 small" style="display:none">
+                    <i class="bi bi-key me-1"></i>
+                    Brak klucza OpenAI API.
+                    <a href="#" onclick="App.ocrShowKeyModal();return false">Skonfiguruj →</a>
+                  </div>
+
+                  <!-- Drop zone -->
+                  <div id="ocr-dropzone"
+                    class="border border-2 border-dashed rounded-3 text-center p-4 mb-3"
+                    style="cursor:pointer;border-color:#6f42c1!important;transition:background .2s"
+                    onclick="document.getElementById('ocr-file-input').click()"
+                    ondragover="event.preventDefault();this.style.background='#f3f0ff'"
+                    ondragleave="this.style.background=''"
+                    ondrop="App.ocrDrop(event)">
+                    <i class="bi bi-cloud-arrow-up fs-2 text-purple d-block mb-2"></i>
+                    <div class="fw-semibold text-purple">Upuść plik tutaj</div>
+                    <div class="text-muted small">lub kliknij, aby wybrać</div>
+                    <div class="text-muted" style="font-size:.75rem;margin-top:4px">
+                      PNG, JPG, PDF, XLSX, TXT, DOCX
+                    </div>
+                  </div>
+                  <input type="file" id="ocr-file-input" style="display:none"
+                    accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.xlsx,.xls,.txt,.csv,.docx"
+                    onchange="App.ocrFileSelected(this)">
+
+                  <!-- Selected file info -->
+                  <div id="ocr-file-info" class="d-none mb-3">
+                    <div class="d-flex align-items-center gap-2 p-2 border rounded bg-light">
+                      <i class="bi bi-file-earmark fs-5 text-purple"></i>
+                      <div class="flex-grow-1 min-w-0">
+                        <div class="fw-semibold text-truncate" id="ocr-file-name"></div>
+                        <div class="text-muted small" id="ocr-file-size"></div>
+                      </div>
+                      <button class="btn btn-sm btn-outline-danger p-1" onclick="App.ocrClearFile()">
+                        <i class="bi bi-x"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Supplier override -->
+                  <div class="mb-3">
+                    <label class="form-label form-label-sm fw-semibold">Dostawca (opcjonalnie)</label>
+                    <input type="text" class="form-control form-control-sm" id="ocr-supplier"
+                      placeholder="Nadpisz nazwę dostawcy z pliku">
+                  </div>
+
+                  <!-- Analyze button -->
+                  <button class="btn btn-purple w-100" id="ocr-analyze-btn"
+                    onclick="App.ocrAnalyze()" disabled
+                    style="background:#6f42c1;border-color:#6f42c1;color:#fff">
+                    <i class="bi bi-stars me-2"></i>Analizuj plik
+                  </button>
+
+                  <div id="ocr-progress" class="mt-3 text-center" style="display:none">
+                    <div class="spinner-border text-purple" role="status"></div>
+                    <div class="small text-muted mt-2" id="ocr-progress-msg">Wysyłam do GPT-4o…</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Image preview -->
+              <div id="ocr-img-preview" class="d-none">
+                <div class="card">
+                  <div class="card-header py-2 small fw-semibold">Podgląd pliku</div>
+                  <div class="card-body p-2 text-center">
+                    <img id="ocr-preview-img" src="" alt="podgląd"
+                      style="max-width:100%;max-height:300px;object-fit:contain;border-radius:4px">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- RIGHT: extracted results -->
+            <div class="col-lg-8">
+              <div class="card h-100">
+                <div class="card-header py-2 d-flex align-items-center gap-2" style="background:#2c3e50;color:#fff">
+                  <i class="bi bi-list-check me-1"></i>
+                  <span>Wyodrębnione wyceny</span>
+                  <span id="ocr-count-badge" class="badge bg-light text-dark ms-1" style="display:none"></span>
+                  <div class="ms-auto d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-light" id="ocr-select-all-btn"
+                      onclick="App.ocrSelectAll()" style="display:none">
+                      Zaznacz wszystkie
+                    </button>
+                    <button class="btn btn-sm btn-success" id="ocr-import-btn"
+                      onclick="App.ocrConfirm()" style="display:none">
+                      <i class="bi bi-check2-circle me-1"></i>Importuj zaznaczone
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body p-0">
+                  <div id="ocr-results-wrap" class="p-3">
+                    <div class="text-center text-muted py-5">
+                      <i class="bi bi-stars fs-1 d-block mb-3 opacity-25"></i>
+                      <p>Wgraj plik i kliknij <strong>Analizuj</strong></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         TAB — Summary
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-summary">
+      <div class="row g-3 mb-4" id="summary-stats"></div>
+      <div class="card">
+        <div class="card-header bg-dark text-white">
+          <i class="bi bi-trophy me-2"></i>Najlepsze ceny wg produktu
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+              <thead>
+                <tr>
+                  <th class="ps-3">Kategoria</th>
+                  <th>Produkt</th>
+                  <th>Liczba ofert</th>
+                  <th>Najlepsza cena/jedn. PLN</th>
+                  <th>Najtańszy dostawca</th>
+                </tr>
+              </thead>
+              <tbody id="summary-tbody">
+                <tr><td colspan="5" class="text-center text-secondary py-4">
+                  <i class="bi bi-hourglass-split me-2"></i>Ładowanie…
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-content -->
+</div><!-- /container -->
+
+<!-- ── Delete confirmation modal ── -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Usuń wycenę</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <i class="bi bi-exclamation-triangle-fill text-danger fs-2 d-block mb-2"></i>
+        Czy na pewno chcesz usunąć tę wycenę?
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Anuluj</button>
+        <button class="btn btn-danger btn-sm" id="confirm-delete-btn">Usuń</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/app.js"></script>
+
+<!-- ── Global Modals (outside tab-panes so they always render correctly) ── -->
+
+<!-- File Preview Modal -->
+<div class="modal fade" id="filePreviewModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content" style="max-height:90vh">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0">
+          <i class="bi bi-paperclip me-2"></i>
+          <span id="preview-filename">Podgląd pliku</span>
+        </h6>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+          <a id="preview-download-btn" href="#" target="_blank" download
+            class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Pobierz
+          </a>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0 overflow-auto" style="max-height:80vh" id="preview-body">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Inbox Email Review Modal -->
+<div class="modal fade" id="inboxReviewModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#0d6efd,#198754);color:#fff">
+        <h5 class="modal-title d-flex align-items-center gap-2">
+          <i class="bi bi-envelope-open me-1"></i>Przegląd wyceny z maila
+          <span id="irm-db-badge" class="badge bg-white text-success d-none" style="font-size:.75rem">
+            <i class="bi bi-check2-circle me-1"></i><span id="irm-db-count">0</span> w bazie
+          </span>
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <table class="table table-sm table-borderless mb-0">
+              <tr><th class="text-muted pe-3" style="width:100px">Od:</th><td id="irm-from"></td></tr>
+              <tr><th class="text-muted pe-3">Temat:</th><td id="irm-subject"></td></tr>
+              <tr><th class="text-muted pe-3">Data:</th><td id="irm-date"></td></tr>
+            </table>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Dostawca (nadpisz)</label>
+            <input type="text" id="irm-supplier" class="form-control form-control-sm" placeholder="Wykryty automatycznie">
+          </div>
+        </div>
+        <div id="irm-body-wrap" class="mb-3">
+          <details>
+            <summary class="text-muted small" style="cursor:pointer">Treść maila</summary>
+            <pre id="irm-body" class="mt-2 p-2 bg-light rounded small" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
+          </details>
+        </div>
+        <h6>Wykryte pozycje wyceny</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle" id="irm-table">
+            <thead class="table-light">
+              <tr>
+                <th><input type="checkbox" id="irm-check-all" checked onchange="App.inboxCheckAll(this)"></th>
+                <th>Produkt</th>
+                <th>Dostawca</th>
+                <th>Cena</th>
+                <th>Waluta</th>
+                <th>MOQ (kg)</th>
+                <th>Kategoria</th>
+                <th>Typ ceny</th>
+              </tr>
+            </thead>
+            <tbody id="irm-tbody"></tbody>
+          </table>
+        </div>
+        <div id="irm-empty" class="text-center text-muted py-3" style="display:none">
+          <i class="bi bi-exclamation-circle me-2"></i>Brak wykrytych pozycji wyceny.
+        </div>
+        <div id="irm-error" class="alert alert-warning small mt-2" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger btn-sm" onclick="App.inboxReject()">
+          <i class="bi bi-x-circle me-1"></i>Odrzuć
+        </button>
+        <button class="btn btn-success" onclick="App.inboxConfirm()">
+          <i class="bi bi-check-circle me-1"></i>Zapisz zaznaczone wyceny
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
