@@ -29,6 +29,7 @@ class QuotationCreate(BaseModel):
     contact_email: Optional[str] = None
     source_file: Optional[str] = None
     price_type: Optional[str] = "netto"
+    base_name: Optional[str] = None
 
     @field_validator("category")
     @classmethod
@@ -76,6 +77,7 @@ class QuotationRead(BaseModel):
     contact_email: Optional[str] = None
     source_file: Optional[str] = None
     price_type: Optional[str] = "netto"
+    base_name: Optional[str] = None
     inbox_id: Optional[int] = None
     price_per_unit_pln: float = 0.0
     effective_price_per_unit_pln: float = 0.0
@@ -99,6 +101,7 @@ class QuotationUpdate(BaseModel):
     quote_date: Optional[date] = None
     contact_email: Optional[str] = None
     price_type: Optional[str] = None
+    base_name: Optional[str] = None
 
 
 class CalcResult(BaseModel):

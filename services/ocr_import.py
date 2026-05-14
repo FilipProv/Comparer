@@ -28,7 +28,8 @@ Przeanalizuj podany obraz lub tekst i wyodrębnij WSZYSTKIE pozycje cenowe.
 Zwróć JSON (tablicę obiektów) w dokładnie takim formacie:
 [
   {
-    "product_name": "Nazwa substancji lub produktu",
+    "product_name": "Pełna nazwa z wariantem np. Sodium Butyrate 98% regular powder",
+    "base_name": "Bazowa nazwa substancji bez specyfikacji np. Sodium Butyrate",
     "supplier": "Nazwa dostawcy (jeśli widoczna, inaczej null)",
     "price_original": 123.45,
     "currency": "PLN",
@@ -64,6 +65,7 @@ Pozostałe zasady:
 - supplier: szukaj nazwy firmy w nagłówku, stopce, podpisie emaila, logo, nazwie nadawcy, domenie emaila (np. "A-Sense", "Aogubio"). Jeśli brak — null
 - contact_email: adres email nadawcy lub kontaktowy widoczny w dokumencie
 - price_type: "netto" jeśli cena jest netto/bez VAT (najczęściej w ofertach B2B), "brutto" jeśli cena zawiera VAT; jeśli nie wskazano — domyślnie "netto"
+- base_name: bazowa (generyczna) nazwa substancji/produktu BEZ specyfikacji technicznych (procent czystości, forma, granulacja, powłoka itp.). Przykłady: "Sodium Butyrate 98% regular powder" → base_name="Sodium Butyrate"; "Vitamin C Ascorbic Acid 99% fine" → base_name="Vitamin C Ascorbic Acid"; "Magnesium Citrate" → base_name="Magnesium Citrate". Jeśli produkt nie ma wariantów — wstaw tę samą wartość co product_name.
 - Jeśli są progi cenowe (różne ceny przy różnych ilościach) — zwróć OSOBNY wpis dla każdego progu
 - Zwróć TYLKO czysty JSON bez markdown, komentarzy ani wyjaśnień
 """

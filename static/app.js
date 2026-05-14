@@ -453,14 +453,21 @@ const App = (() => {
       if (!bestPpu[key] || r.price_per_unit_pln < bestPpu[key]) bestPpu[key] = r.price_per_unit_pln;
     });
 
+    const today = new Date().toISOString().slice(0, 10);
     tbody.innerHTML = rows.map(r => {
       const key = `${r.category}|${r.product_name}`;
       const isBest = r.price_per_unit_pln === bestPpu[key];
-      const validUntil = r.valid_until || "—";
+      const expired = r.valid_until && r.valid_until < today;
+      const validUntilCell = expired
+        ? `<span class="badge bg-danger" title="Wycena wygasła ${r.valid_until}"><i class="bi bi-exclamation-triangle-fill me-1"></i>${r.valid_until}</span>`
+        : (r.valid_until || "—");
       const notes = r.notes ? `<span title="${escHtml(r.notes)}" class="text-muted small">${escHtml(r.notes.slice(0, 30))}${r.notes.length > 30 ? "…" : ""}</span>` : "—";
-      return `<tr class="${isBest ? "best-price" : ""}" data-id="${r.id}">
+      return `<tr class="${isBest ? "best-price" : ""}${expired ? " table-expired" : ""}" data-id="${r.id}">
         <td>${catBadge(r.category)}</td>
-        <td class="fw-semibold">${escHtml(r.product_name)}</td>
+        <td class="fw-semibold${expired ? " text-muted" : ""}">
+          ${escHtml(r.product_name)}
+          ${expired ? `<span class="badge bg-danger ms-1" style="font-size:.65rem">Wygasła</span>` : ""}
+        </td>
         <td>${escHtml(r.supplier)}</td>
         <td class="text-end">${fmt(r.quantity, 2)}</td>
         <td>${escHtml(r.unit)}</td>
@@ -468,11 +475,11 @@ const App = (() => {
         <td>${currBadge(r.currency)}</td>
         <td class="text-end text-muted small">${r.currency === "PLN" ? "—" : fmt(r.exchange_rate_used, 4)}</td>
         <td class="text-end fw-semibold">${fmt(r.price_pln, 2)}</td>
-        <td class="text-end text-success fw-bold">${fmt(r.price_per_unit_pln, 4)}</td>
+        <td class="text-end ${expired ? "text-muted" : "text-success fw-bold"}">${fmt(r.price_per_unit_pln, 4)}</td>
         <td>${r.incoterm ? `<span class="badge ${_incotermBadgeCls(r.incoterm)}">${escHtml(r.incoterm)}</span>` : "—"}</td>
         <td>${r.price_type === "brutto" ? `<span class="badge bg-warning text-dark">Brutto</span>` : `<span class="badge bg-light text-secondary border">Netto</span>`}</td>
         <td class="text-muted small">${r.quote_date || "—"}</td>
-        <td>${validUntil}</td>
+        <td>${validUntilCell}</td>
         <td class="text-muted small">${r.contact_email ? `<a href="mailto:${escHtml(r.contact_email)}" title="${escHtml(r.contact_email)}">${escHtml(r.contact_email.length > 22 ? r.contact_email.slice(0,22)+"…" : r.contact_email)}</a>` : "—"}</td>
         <td>${notes}${r.source_file ? `<a href="#" onclick="event.preventDefault();App.previewFile('${encodeURIComponent(r.source_file)}')" class="ms-1 text-muted" title="Podgląd pliku: ${escHtml(r.source_file)}"><i class="bi bi-paperclip"></i></a>` : ""}</td>
         <td>
@@ -534,6 +541,7 @@ const App = (() => {
     if (!payload.quote_date)     delete payload.quote_date;
     if (!payload.contact_email)  delete payload.contact_email;
     if (!payload.notes)          delete payload.notes;
+    if (!payload.base_name)      delete payload.base_name;
     payload.quantity       = parseFloat(payload.quantity);
     payload.price_original = parseFloat(payload.price_original);
     if (payload.moq) payload.moq = parseFloat(payload.moq);
@@ -808,28 +816,52 @@ const App = (() => {
     const onlyNoMoq = document.getElementById(`pl-${which}-nomoq`)?.checked   || false;
     const catFilter = _plCatFilter[which] || "all";
 
+    // Client-side base name extraction when base_name not stored in DB
+    function _clientBaseName(r) {
+      if (r.base_name) return r.base_name;
+      return (r.product_name || "")
+        .replace(/\s+\d[\d.,]*\s*%.*$/i, "")   // strip "98% regular powder", "90% coated" etc.
+        .replace(/\s+(regular|coated|fine|granulated|powder|extract|complex|premium|micronized|buffered|sustained|release|enteric)\b.*$/i, "")
+        .trim() || r.product_name;
+    }
+
     let rows = _plData[which] || [];
     if (catFilter !== "all") rows = rows.filter(r => r.category === catFilter);
-    if (query)    rows = rows.filter(r => r.product_name.toLowerCase().includes(query));
     if (supplier) rows = rows.filter(r => r.supplier === supplier);
     if (incoterm) rows = rows.filter(r => (r.incoterm || "").toUpperCase() === incoterm);
 
-    // Group by product_name first (before applying group-level filters)
-    const groups = {};
+    // Group by base_name (client-extracted or stored) → then by product_name
+    if (query) rows = rows.filter(r =>
+      r.product_name.toLowerCase().includes(query) ||
+      _clientBaseName(r).toLowerCase().includes(query)
+    );
+
+    const superGroups = {};
     rows.forEach(r => {
-      const key = `${r.category}||${r.product_name}`;
-      if (!groups[key]) groups[key] = { category: r.category, product_name: r.product_name, offers: [] };
-      groups[key].offers.push(r);
+      const bn = _clientBaseName(r);
+      const sgKey = `${r.category}||${bn}`;
+      if (!superGroups[sgKey]) superGroups[sgKey] = {
+        category: r.category,
+        base_name: bn,
+        variants: {}
+      };
+      const vKey = r.product_name;
+      if (!superGroups[sgKey].variants[vKey]) superGroups[sgKey].variants[vKey] = [];
+      superGroups[sgKey].variants[vKey].push(r);
     });
 
-    // Apply group-level filters
-    let groupList = Object.values(groups);
-    if (onlyMulti) groupList = groupList.filter(g => {
-      const suppliers = new Set(g.offers.map(o => o.supplier));
+    let groupList = Object.values(superGroups).map(sg => ({
+      ...sg,
+      variantList: Object.entries(sg.variants).map(([name, offers]) => ({ product_name: name, offers })),
+      allOffers: Object.values(sg.variants).flat(),
+    }));
+
+    if (onlyMulti) groupList = groupList.filter(sg => {
+      const suppliers = new Set(sg.allOffers.map(o => o.supplier));
       return suppliers.size >= 2;
     });
-    if (onlyNoMoq) groupList = groupList.filter(g =>
-      g.offers.every(o => !o.moq)
+    if (onlyNoMoq) groupList = groupList.filter(sg =>
+      sg.allOffers.every(o => !o.moq)
     );
 
     if (countBadge) countBadge.textContent = groupList.length;
@@ -845,13 +877,12 @@ const App = (() => {
     // Sort groups
     groupList.sort((a, b) => {
       if (sortBy === "price") {
-        const bestA = Math.min(...a.offers.map(o => o.price_per_unit_pln));
-        const bestB = Math.min(...b.offers.map(o => o.price_per_unit_pln));
+        const bestA = Math.min(...a.allOffers.map(o => o.price_per_unit_pln));
+        const bestB = Math.min(...b.allOffers.map(o => o.price_per_unit_pln));
         return bestA - bestB;
       }
-      if (sortBy === "offers") return b.offers.length - a.offers.length;
-      // default: name, grouped by category
-      return a.category.localeCompare(b.category) || a.product_name.localeCompare(b.product_name);
+      if (sortBy === "offers") return b.allOffers.length - a.allOffers.length;
+      return a.category.localeCompare(b.category) || a.base_name.localeCompare(b.base_name);
     });
 
     const sorted = groupList;
@@ -910,52 +941,152 @@ const App = (() => {
             </thead>
             <tbody>`;
 
-      // Helper: effective MOQ = explicit moq if set, otherwise the quoted quantity
-      // (if a supplier quotes price for 10 kg, you need at least 10 kg to get that price)
+      // Helper functions
+      const plToday = new Date().toISOString().slice(0, 10);
       const effMoq = o => o.moq ?? o.quantity;
-      // "truly no MOQ" = no explicit moq and quantity is 1 or less
       const hasNoMoq = o => !o.moq && (o.quantity == null || o.quantity <= 1);
+      const isExpired = o => !!(o.valid_until && o.valid_until < plToday);
 
-      catGroups.forEach(g => {
-        const { offers } = g;
-        // Sort by price_per_unit_pln ascending
-        const sorted_offers = [...offers].sort((a, b) => a.price_per_unit_pln - b.price_per_unit_pln);
-        const best = sorted_offers[0];
-        const hasMultiple = offers.length > 1;
-        const groupId = `pl-${which}-${encodeURIComponent(g.product_name.replace(/\s/g,"_")).slice(0,20)}-${Math.random().toString(36).slice(2,6)}`;
+      function _freshnessCell(offer) {
+        const dateStr = offer.quote_date || offer.created_at;
+        if (!dateStr) return '<span class="text-muted">—</span>';
+        const days = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
+        if (days < 30)  return `<span class="badge bg-success-subtle text-success border border-success-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
+        if (days < 90)  return `<span class="badge bg-warning-subtle text-warning border border-warning-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
+        return `<span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
+      }
 
-        // If best has no effective MOQ (qty=1), find the cheapest offer WITH effective MOQ > 1
+      function _moqCell(offer, small) {
+        const em = effMoq(offer);
+        const isExplicit = !!offer.moq;
+        const tag = small ? "small" : "span";
+        if (hasNoMoq(offer)) return `<span class="text-success fw-semibold">brak</span>`;
+        const note = !isExplicit ? ` <span class="text-muted" title="wynika z podanej ilości">(z ilości)</span>` : "";
+        return `<${tag} class="${small ? "text-muted" : ""}">${fmtQty(em, offer.unit)}${note}</${tag}>`;
+      }
+
+      function _costCell(offer, cls) {
+        const em = effMoq(offer);
+        if (!em || !offer.price_per_unit_pln || hasNoMoq(offer)) return "—";
+        return `<span class="fw-semibold ${cls}">${fmt(em * offer.price_per_unit_pln, 2)} zł</span>`;
+      }
+
+      // Renders supplier blocks for a given set of offers (used for both single & multi-variant)
+      function _renderSupplierBlocks(offers, overallBestPpu) {
+        const bySupplier = {};
+        [...offers].sort((a, b) => a.price_per_unit_pln - b.price_per_unit_pln).forEach(o => {
+          if (!bySupplier[o.supplier]) bySupplier[o.supplier] = [];
+          bySupplier[o.supplier].push(o);
+        });
+        const suppliersSorted = Object.entries(bySupplier).sort((a, b) => {
+          const bA = Math.min(...a[1].map(o => o.price_per_unit_pln));
+          const bB = Math.min(...b[1].map(o => o.price_per_unit_pln));
+          return bA - bB;
+        });
+        let h = "";
+        suppliersSorted.forEach(([supplierName, tiers], supIdx) => {
+          const isTop = supIdx === 0;
+          const sortedTiers = [...tiers].sort((a, b) => (effMoq(a) || 0) - (effMoq(b) || 0));
+          const bestTierPpu = Math.min(...tiers.map(o => o.price_per_unit_pln));
+          const allTiersExpired = tiers.every(o => isExpired(o));
+          const borderColor = allTiersExpired ? "#dc3545" : (isTop ? "#198754" : "#6c757d");
+          const headerBg = allTiersExpired ? "#fff0f0" : (isTop ? "#d1e7dd" : "#e9ecef");
+          h += `<div class="supplier-block" style="border-left:3px solid ${borderColor};margin:0;padding:0">
+            <div class="d-flex align-items-center gap-2 px-3 py-2"
+                 style="background:${headerBg};border-bottom:1px solid #dee2e6">
+              ${allTiersExpired ? `<i class="bi bi-exclamation-triangle-fill text-danger" style="font-size:.9rem"></i>` : (isTop ? `<span style="font-size:1rem">🥇</span>` : `<span class="text-muted" style="font-size:.8rem;width:1.2rem;text-align:center">${supIdx+1}.</span>`)}
+              <span class="fw-bold${allTiersExpired ? " text-muted" : ""}" style="font-size:.9rem">${escHtml(supplierName)}</span>
+              ${tiers.length > 1 ? `<span class="badge bg-secondary" style="font-size:.68rem">${tiers.length} progi MOQ</span>` : ""}
+              ${allTiersExpired ? `<span class="badge bg-danger ms-1" style="font-size:.68rem">Wygasła</span>` : ""}
+              <span class="ms-auto fw-bold ${allTiersExpired ? "text-muted text-decoration-line-through" : (isTop ? "text-success" : "text-secondary")}" style="font-size:.85rem">
+                od ${fmt(bestTierPpu, 4)} PLN/jedn.
+              </span>
+              ${allTiersExpired ? `<span class="badge bg-danger" style="font-size:.65rem" title="Wygasła ${sortedTiers[0].valid_until}"><i class="bi bi-clock-history"></i></span>` : _freshnessCell(sortedTiers[0])}
+            </div>
+            <table class="table table-sm mb-0" style="font-size:.81rem">
+              <thead>
+                <tr style="background:#f1f3f5;color:#6c757d;font-size:.75rem">
+                  <th style="width:90px;padding-left:2.5rem">MOQ</th>
+                  <th class="text-end">Cena oryg.</th>
+                  <th class="text-end">PLN/jedn.</th>
+                  <th class="text-end">Koszt @ MOQ</th>
+                  <th class="text-center">Incoterm</th>
+                  <th>Typ ceny</th>
+                  <th>Data wyceny</th>
+                  <th>Ważna do</th>
+                  <th>Spec</th>
+                  <th style="min-width:100px">Uwagi</th>
+                  <th style="width:32px"></th>
+                </tr>
+              </thead>
+              <tbody>`;
+          sortedTiers.forEach(o => {
+            const isCheapest = o.price_per_unit_pln === bestTierPpu;
+            const tierExpired = isExpired(o);
+            const notesDisplay = o.notes
+              ? escHtml(o.notes.slice(0, 60)) + (o.notes.length > 60 ? "…" : "")
+              : '<span class="text-muted opacity-40" style="font-size:.75rem">dodaj uwagę</span>';
+            h += `<tr style="${tierExpired ? "background:#fff5f5;opacity:.8" : (isCheapest && tiers.length > 1 ? "background:#f0fff4" : "")}">
+              <td class="ps-4 fw-semibold small">${_moqCell(o, true)}</td>
+              <td class="text-end${tierExpired ? " text-muted text-decoration-line-through" : ""}">${fmt(o.price_original, 2)} ${currBadge(o.currency)}</td>
+              <td class="text-end fw-bold ${tierExpired ? "text-muted" : (isCheapest ? "text-success" : "")}">${fmt(o.price_per_unit_pln, 4)}</td>
+              <td class="text-end small">${_costCell(o, tierExpired ? "text-muted" : "text-muted")}</td>
+              <td class="text-center">${o.incoterm ? `<span class="badge ${_incotermBadgeCls(o.incoterm)}">${escHtml(o.incoterm)}</span>` : "—"}</td>
+              <td class="small">${o.price_type === "brutto" ? `<span class="badge bg-warning text-dark">Brutto</span>` : `<span class="badge bg-light text-secondary border">Netto</span>`}</td>
+              <td class="small text-muted">${o.quote_date || "—"}</td>
+              <td class="small ${tierExpired ? "text-danger fw-semibold" : "text-muted"}">${tierExpired ? `<i class="bi bi-exclamation-triangle-fill me-1"></i>${o.valid_until}` : (o.valid_until || "—")}</td>
+              <td class="small text-muted">${o.spec_label ? escHtml(o.spec_label.slice(0,18)) : "—"}</td>
+              <td class="small pl-notes-cell" data-id="${o.id}"
+                data-notes="${escHtml(o.notes||"")}"
+                style="cursor:pointer;min-width:90px"
+                onclick="App.plEditNotes(this)">
+                <span class="pl-notes-text">${notesDisplay}</span>
+                <i class="bi bi-pencil-fill ms-1 text-muted opacity-0 pl-notes-icon" style="font-size:.7rem"></i>
+              </td>
+              <td class="text-center">
+                <button class="btn btn-link btn-sm p-0 text-danger opacity-25 pl-del-btn"
+                  title="Usuń tę wycenę"
+                  onclick="event.stopPropagation();App.plDeleteOffer(${o.id},'${escHtml(o.supplier)}','${escHtml(o.product_name)}')">
+                  <i class="bi bi-trash3" style="font-size:.8rem"></i>
+                </button>
+              </td>
+            </tr>`;
+          });
+          h += `</tbody></table></div>`;
+        });
+        return h;
+      }
+
+      catGroups.forEach(sg => {
+        const isMultiVariant = sg.variantList.length > 1;
+        const sorted_all = [...sg.allOffers].sort((a, b) => a.price_per_unit_pln - b.price_per_unit_pln);
+        const best = sorted_all[0];
+        const hasMultiple = sg.allOffers.length > 1 || isMultiVariant;
+        const groupId = `pl-${which}-${encodeURIComponent(sg.base_name.replace(/\s/g,"_")).slice(0,20)}-${Math.random().toString(36).slice(2,6)}`;
+
+        // Offer with the smallest effective MOQ (shown in summary row MOQ column)
+        const minMoqOffer = [...sg.allOffers].sort((a, b) => {
+          const ea = hasNoMoq(a) ? 0 : (effMoq(a) || Infinity);
+          const eb = hasNoMoq(b) ? 0 : (effMoq(b) || Infinity);
+          return ea - eb;
+        })[0];
+
+        // Summary row — shows base_name (+ variant count badge if multi)
         const bestHasNoMoq = hasNoMoq(best);
-        const bestWithMoq = bestHasNoMoq
-          ? sorted_offers.find(o => !hasNoMoq(o) && o.id !== best.id) || null
+        const bestWithMoq = bestHasNoMoq && !isMultiVariant
+          ? sorted_all.find(o => !hasNoMoq(o) && o.id !== best.id) || null
           : null;
 
-        function _freshnessCell(offer) {
-          const dateStr = offer.quote_date || offer.created_at;
-          if (!dateStr) return '<span class="text-muted">—</span>';
-          const days = Math.floor((Date.now() - new Date(dateStr)) / 86400000);
-          if (days < 30)  return `<span class="badge bg-success-subtle text-success border border-success-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
-          if (days < 90)  return `<span class="badge bg-warning-subtle text-warning border border-warning-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
-          return `<span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="${new Date(dateStr).toLocaleDateString('pl-PL')}">${days}d</span>`;
-        }
-
-        function _moqCell(offer, small) {
-          const em = effMoq(offer);
-          const isExplicit = !!offer.moq;
-          const tag = small ? "small" : "span";
-          if (hasNoMoq(offer)) return `<span class="text-success fw-semibold">brak</span>`;
-          const note = !isExplicit ? ` <span class="text-muted" title="wynika z podanej ilości">(z ilości)</span>` : "";
-          return `<${tag} class="${small ? "text-muted" : ""}">${fmtQty(em, offer.unit)}${note}</${tag}>`;
-        }
-
-        function _costCell(offer, cls) {
-          const em = effMoq(offer);
-          if (!em || !offer.price_per_unit_pln || hasNoMoq(offer)) return "—";
-          return `<span class="fw-semibold ${cls}">${fmt(em * offer.price_per_unit_pln, 2)} zł</span>`;
-        }
+        // Expired state of the whole super-group
+        const allExpired = sg.allOffers.every(o => isExpired(o));
+        const someExpired = !allExpired && sg.allOffers.some(o => isExpired(o));
 
         function _summaryRow(offer, isSecondary) {
-          const rowBg = isSecondary ? "background:#e8f4fd" : "background:#f0fff4";
+          const offerExpired = isExpired(offer);
+          let rowBg;
+          if (allExpired) rowBg = "background:#fff5f5";
+          else if (isSecondary) rowBg = "background:#e8f4fd";
+          else rowBg = "background:#f0fff4";
           const label = isSecondary
             ? `<span class="badge ms-1" style="background:#0d6efd;font-size:.68rem">najlepsza z MOQ</span>`
             : ``;
@@ -964,27 +1095,36 @@ const App = (() => {
             : `<span class="me-3"></span>`;
           const clickAttr = (!isSecondary && hasMultiple) ? `onclick="App._plToggle('${groupId}')"` : "";
           const cursor = (!isSecondary && hasMultiple) ? "pointer" : "default";
+          const displayName = isMultiVariant ? escHtml(sg.base_name) : escHtml(sg.variantList[0]?.product_name || sg.base_name);
           const offerCount = !isSecondary
-            ? `<td class="text-center text-muted">${offers.length}</td>`
+            ? `<td class="text-center text-muted">${sg.allOffers.length}</td>`
             : `<td></td>`;
-          return `<tr class="pl-product-row${!isSecondary && hasMultiple ? " pl-expandable" : ""}"
-              style="cursor:${cursor};${rowBg}"
+          const expiredBadge = !isSecondary && allExpired
+            ? `<span class="badge bg-danger ms-1" style="font-size:.65rem" title="Wszystkie wyceny po terminie ważności"><i class="bi bi-exclamation-triangle-fill me-1"></i>Wygasłe</span>`
+            : (!isSecondary && someExpired
+              ? `<span class="badge bg-warning text-dark ms-1" style="font-size:.65rem" title="Część wycen po terminie ważności"><i class="bi bi-exclamation-circle me-1"></i>Część wygasła</span>`
+              : "");
+          const priceClass = offerExpired ? "text-muted" : (isSecondary ? "text-primary" : "text-success");
+          return `<tr class="pl-product-row${!isSecondary && hasMultiple ? " pl-expandable" : ""}${allExpired ? " pl-all-expired" : ""}"
+              style="cursor:${cursor};${rowBg}${allExpired ? ";opacity:.75" : ""}"
               ${clickAttr}>
             <td class="ps-2 fw-semibold">
               ${chevron}
-              ${!isSecondary ? escHtml(g.product_name) : ""}
-              ${!isSecondary && hasMultiple ? `<span class="badge bg-secondary ms-1" style="font-size:.7rem">${offers.length}</span>` : ""}
+              ${!isSecondary ? `<span${allExpired ? ' class="text-muted"' : ""}>${displayName}</span>` : ""}
+              ${!isSecondary && isMultiVariant ? `<span class="badge ms-1" style="background:#6f42c1;font-size:.7rem">${sg.variantList.length} warianty</span>` : ""}
+              ${!isSecondary && !isMultiVariant && hasMultiple ? `<span class="badge bg-secondary ms-1" style="font-size:.7rem">${sg.allOffers.length}</span>` : ""}
+              ${expiredBadge}
               ${label}
             </td>
             ${offerCount}
-            <td class="text-end fw-bold ${isSecondary ? "text-primary" : "text-success"}">${fmt(offer.price_per_unit_pln, 4)}</td>
+            <td class="text-end fw-bold ${priceClass}">${fmt(offer.price_per_unit_pln, 4)}</td>
             <td>
-              <span class="badge" style="background:${isSecondary ? "#0d6efd" : "#1a6b3c"};font-size:.78rem">${escHtml(offer.supplier)}</span>
-              <span class="ms-1">${_freshnessCell(offer)}</span>
+              <span class="badge" style="background:${offerExpired ? "#6c757d" : (isSecondary ? "#0d6efd" : "#1a6b3c")};font-size:.78rem">${escHtml(offer.supplier)}</span>
+              <span class="ms-1">${offerExpired ? `<span class="badge bg-danger" style="font-size:.65rem" title="Wygasła ${offer.valid_until}"><i class="bi bi-clock-history"></i></span>` : _freshnessCell(offer)}</span>
             </td>
             <td class="text-center">${offer.incoterm ? `<span class="badge ${_incotermBadgeCls(offer.incoterm)}">${escHtml(offer.incoterm)}</span>` : "—"}</td>
-            <td class="small">${_moqCell(offer, false)}</td>
-            <td class="text-end small">${_costCell(offer, isSecondary ? "text-primary" : "text-primary")}</td>
+            <td class="small">${_moqCell(minMoqOffer, false)}${minMoqOffer !== offer ? `<span class="text-muted ms-1" style="font-size:.68rem" title="Najtańsza oferta ma inne MOQ">(min)</span>` : ""}</td>
+            <td class="text-end small">${_costCell(minMoqOffer, priceClass)}</td>
             <td class="text-muted small">${offer.spec_label ? escHtml(offer.spec_label.slice(0,18)) : "—"}</td>
           </tr>`;
         }
@@ -992,63 +1132,33 @@ const App = (() => {
         html += _summaryRow(best, false);
         if (bestWithMoq) html += _summaryRow(bestWithMoq, true);
 
-        // Detail rows (hidden by default)
         if (hasMultiple) {
-          html += `<tr id="${groupId}" style="display:none">
-            <td colspan="8" class="p-0">
-              <table class="table table-sm mb-0" style="font-size:.82rem;background:#fafafa">
-                <thead>
-                  <tr style="background:#ecf0f1;color:#555">
-                    <th style="width:25%;padding-left:2.5rem">Dostawca</th>
-                    <th class="text-end">Cena oryg.</th>
-                    <th class="text-end">PLN/jedn.</th>
-                    <th class="text-center">Incoterm</th>
-                    <th>MOQ</th>
-                    <th class="text-end">Koszt @ MOQ</th>
-                    <th>Spec</th>
-                    <th>Wiek</th>
-                    <th>Typ ceny</th>
-                    <th>Uwagi</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>`;
+          html += `<tr id="${groupId}" style="display:none"><td colspan="8" class="p-0" style="background:#f8f9fa">`;
 
-          sorted_offers.forEach((o, idx) => {
-            const isBest = idx === 0;
-            const notesDisplay = o.notes
-              ? escHtml(o.notes.slice(0, 60)) + (o.notes.length > 60 ? "…" : "")
-              : '<span class="text-muted opacity-50">dodaj uwagę</span>';
-            html += `<tr style="${isBest ? "background:#d1e7dd" : ""}">
-              <td class="ps-4 fw-semibold">
-                ${isBest ? "🥇 " : ""}${escHtml(o.supplier)}
-              </td>
-              <td class="text-end">${fmt(o.price_original, 2)} ${currBadge(o.currency)}</td>
-              <td class="text-end ${isBest ? "text-success fw-bold" : ""}">${fmt(o.price_per_unit_pln, 4)}</td>
-              <td class="text-center">${o.incoterm ? `<span class="badge ${_incotermBadgeCls(o.incoterm)}">${escHtml(o.incoterm)}</span>` : "—"}</td>
-              <td class="small">${_moqCell(o, true)}</td>
-              <td class="small text-end">${_costCell(o, isBest ? "fw-semibold text-primary" : "text-muted")}</td>
-              <td class="small text-muted">${o.spec_label ? escHtml(o.spec_label.slice(0,18)) : "—"}</td>
-              <td class="small">${_freshnessCell(o)}</td>
-              <td class="small">${o.price_type === "brutto" ? `<span class="badge bg-warning text-dark">Brutto</span>` : `<span class="badge bg-light text-secondary border">Netto</span>`}</td>
-              <td class="small pl-notes-cell" data-id="${o.id}"
-                data-notes="${escHtml(o.notes||"")}"
-                style="cursor:pointer;min-width:110px"
-                onclick="App.plEditNotes(this)">
-                <span class="pl-notes-text">${notesDisplay}</span>
-                <i class="bi bi-pencil-fill ms-1 text-muted opacity-0 pl-notes-icon" style="font-size:.7rem"></i>
-              </td>
-              <td class="text-center">
-                <button class="btn btn-link btn-sm p-0 text-danger opacity-25 pl-del-btn"
-                  title="Usuń tę wycenę"
-                  onclick="event.stopPropagation();App.plDeleteOffer(${o.id},'${escHtml(o.supplier)}','${escHtml(o.product_name||g.product_name)}')">
-                  <i class="bi bi-trash3" style="font-size:.8rem"></i>
-                </button>
-              </td>
-            </tr>`;
-          });
+          if (isMultiVariant) {
+            // Multi-variant: show each variant as a labeled section, then supplier blocks
+            sg.variantList
+              .sort((a, b) => Math.min(...a.offers.map(o => o.price_per_unit_pln)) - Math.min(...b.offers.map(o => o.price_per_unit_pln)))
+              .forEach((v, vIdx) => {
+                const vBest = Math.min(...v.offers.map(o => o.price_per_unit_pln));
+                const vAllExpired = v.offers.every(o => isExpired(o));
+                html += `<div style="border-top:${vIdx > 0 ? "2px solid #dee2e6" : "none"}">
+                  <div class="d-flex align-items-center gap-2 px-3 py-2" style="background:${vAllExpired ? "#fff0f0" : "#f0f4ff"};border-bottom:1px solid #dee2e6">
+                    <i class="bi bi-diagram-2 ${vAllExpired ? "text-danger" : "text-primary"}" style="font-size:.85rem"></i>
+                    <span class="fw-semibold ${vAllExpired ? "text-muted" : "text-primary"}" style="font-size:.88rem">${escHtml(v.product_name)}</span>
+                    <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem">${v.offers.length} ofert${v.offers.length === 1 ? "a" : ""}</span>
+                    ${vAllExpired ? `<span class="badge bg-danger ms-1" style="font-size:.68rem"><i class="bi bi-exclamation-triangle-fill me-1"></i>Wygasłe</span>` : ""}
+                    <span class="ms-auto ${vAllExpired ? "text-muted text-decoration-line-through" : "text-success fw-bold"}" style="font-size:.82rem">od ${fmt(vBest, 4)} PLN/jedn.</span>
+                  </div>
+                  ${_renderSupplierBlocks(v.offers, vBest)}
+                </div>`;
+              });
+          } else {
+            // Single variant: just show supplier blocks
+            html += _renderSupplierBlocks(sg.allOffers, Math.min(...sg.allOffers.map(o => o.price_per_unit_pln)));
+          }
 
-          html += `</tbody></table></td></tr>`;
+          html += `</td></tr>`;
         }
       });
 
@@ -1930,28 +2040,53 @@ const App = (() => {
       return;
     }
 
-    let html = `<table class="table table-sm table-hover mb-0 align-middle">
+    const catLabel = {substancja_czynna:"Substancja", opakowanie:"Opakowanie", kapsula:"Kapsułka"};
+    let html = `<table class="table table-sm mb-0 align-middle" style="font-size:.83rem">
       <thead class="table-light sticky-top">
         <tr>
           <th style="width:36px">
             <input type="checkbox" class="form-check-input" id="paste-text-chk-all"
               onchange="App.pasteTextToggleAll(this.checked)">
           </th>
-          <th>Produkt</th><th>Dostawca</th><th>Cena</th><th>Waluta</th><th>MOQ</th><th>Kategoria</th>
+          <th>Produkt</th><th>Dostawca</th><th class="text-end">Cena/jedn.</th><th>Waluta</th>
+          <th class="text-end">MOQ</th><th>Jedn.</th><th>Kategoria</th>
         </tr>
       </thead><tbody>`;
 
     rows.forEach((r, i) => {
-      const cat = r.category || "substancja";
-      const catColor = cat==="opakowanie" ? "bg-info" : cat==="kapsułka" ? "bg-warning text-dark" : "bg-success";
       html += `<tr>
         <td><input type="checkbox" class="form-check-input paste-text-chk" data-idx="${i}" checked></td>
-        <td class="fw-semibold">${escHtml(r.product_name||"")}</td>
-        <td class="text-muted small">${escHtml(r.supplier||"")}</td>
-        <td>${r.price_per_kg ?? ""}</td>
-        <td>${escHtml(r.currency||"PLN")}</td>
-        <td>${r.moq_kg ?? ""} kg</td>
-        <td><span class="badge ${catColor}">${escHtml(cat)}</span></td>
+        <td style="min-width:140px">
+          <input type="text" class="ocr-edit-input fw-semibold" value="${escHtml(r.product_name||"")}"
+            onchange="window._pasteTextUpdate(${i},'product_name',this.value)" style="min-width:130px">
+        </td>
+        <td style="min-width:110px">
+          <input type="text" class="ocr-edit-input text-muted" value="${escHtml(r.supplier||"")}" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'supplier',this.value)" style="min-width:100px">
+        </td>
+        <td class="text-end" style="min-width:75px">
+          <input type="number" class="ocr-edit-input text-end fw-semibold text-success"
+            value="${r.price_original ?? ""}" step="any"
+            onchange="window._pasteTextUpdate(${i},'price_original',parseFloat(this.value))" style="width:70px">
+        </td>
+        <td>
+          <select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'currency',this.value)" style="width:65px">
+            ${["PLN","EUR","USD"].map(c=>`<option${(r.currency||"PLN")===c?" selected":""}>${c}</option>`).join("")}
+          </select>
+        </td>
+        <td class="text-end">
+          <input type="number" class="ocr-edit-input text-end" value="${r.moq ?? ""}" step="any" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'moq',this.value?parseFloat(this.value):null)" style="width:60px">
+        </td>
+        <td>
+          <input type="text" class="ocr-edit-input" value="${escHtml(r.unit||"kg")}"
+            onchange="window._pasteTextUpdate(${i},'unit',this.value)" style="width:42px">
+        </td>
+        <td>
+          <select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'category',this.value)" style="width:100px">
+            ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}"${(r.category||"substancja_czynna")===v?" selected":""}>${l}</option>`).join("")}
+          </select>
+        </td>
       </tr>`;
     });
 
@@ -1961,17 +2096,33 @@ const App = (() => {
     saveBtn.disabled = false;
   }
 
+  window._pasteTextUpdate = function(idx, field, value) {
+    if (_pasteTextRows[idx]) _pasteTextRows[idx][field] = value;
+  };
+
   function pasteTextToggleAll(checked) {
     document.querySelectorAll(".paste-text-chk").forEach(c => c.checked = checked);
   }
 
   async function pasteTextSave() {
     const checked = [...document.querySelectorAll(".paste-text-chk:checked")]
-      .map(c => _pasteTextRows[+c.dataset.idx]).filter(Boolean);
+      .map(c => ({..._pasteTextRows[+c.dataset.idx]})).filter(Boolean);
     if (!checked.length) { toast("Zaznacz co najmniej jedną pozycję", "warning"); return; }
 
     const supplierOverride = (document.getElementById("paste-text-supplier").value || "").trim();
     if (supplierOverride) checked.forEach(r => { if (!r.supplier) r.supplier = supplierOverride; });
+
+    // Apply global quote fields to all rows
+    const globalPriceType  = document.getElementById("paste-global-price-type")?.value || "netto";
+    const globalIncoterm   = document.getElementById("paste-global-incoterm")?.value || null;
+    const globalQuoteDate  = document.getElementById("paste-global-quote-date")?.value || null;
+    const globalValidUntil = document.getElementById("paste-global-valid-until")?.value || null;
+    checked.forEach(r => {
+      r.price_type  = globalPriceType;
+      r.incoterm    = globalIncoterm || r.incoterm || null;
+      r.quote_date  = globalQuoteDate || r.quote_date || null;
+      r.valid_until = globalValidUntil || r.valid_until || null;
+    });
 
     // Duplicate check
     const dupes = _checkDuplicates(checked);
@@ -2126,7 +2277,6 @@ const App = (() => {
               <th>Waluta</th>
               <th class="text-end">MOQ</th>
               <th>Jedn.</th>
-              <th>Typ ceny</th>
               <th>Kategoria</th>
             </tr>
           </thead>
@@ -2135,9 +2285,9 @@ const App = (() => {
               <tr>
                 <td><input type="checkbox" class="form-check-input add-ocr-chk" checked data-idx="${i}"></td>
                 <td style="min-width:160px">
-                  <input type="text" class="form-control form-control-sm border-0 p-0 fw-semibold"
+                  <input type="text" class="ocr-edit-input fw-semibold"
                     id="add-ocr-prod-${i}"
-                    value="${escHtml(r.product_name)}" style="background:transparent;min-width:140px"
+                    value="${escHtml(r.product_name)}" style="min-width:140px"
                     onchange="window._addOcrUpdate(${i},'product_name',this.value)">
                   ${r._suggested_product ? `
                   <div class="mt-1">
@@ -2152,9 +2302,9 @@ const App = (() => {
                   </div>` : ''}
                 </td>
                 <td style="min-width:120px">
-                  <input type="text" class="form-control form-control-sm border-0 p-0 text-muted"
+                  <input type="text" class="ocr-edit-input text-muted"
                     id="add-ocr-sup-${i}"
-                    value="${escHtml(r.supplier||'')}" placeholder="—" style="background:transparent;width:120px"
+                    value="${escHtml(r.supplier||'')}" placeholder="—" style="width:120px"
                     onchange="window._addOcrUpdate(${i},'supplier',this.value)">
                   ${r._suggested_supplier ? `
                   <div class="mt-1">
@@ -2169,28 +2319,33 @@ const App = (() => {
                   </div>` : ''}
                   ${r._supplier_from_email ? `<div style="font-size:.72rem" class="text-info"><i class="bi bi-envelope me-1"></i>z emaila</div>` : ''}
                 </td>
-                <td class="text-end"><input type="number" class="form-control form-control-sm border-0 p-0 text-end fw-semibold text-success"
-                  value="${r.price_original}" step="any" style="background:transparent;width:80px"
-                  onchange="window._addOcrUpdate(${i},'price_original',parseFloat(this.value))"></td>
-                <td><select class="form-select form-select-sm border-0 p-0" style="background:transparent;width:70px"
-                  onchange="window._addOcrUpdate(${i},'currency',this.value)">
-                  ${["PLN","EUR","USD"].map(c=>`<option ${r.currency===c?"selected":""}>${c}</option>`).join("")}
-                </select></td>
-                <td class="text-end"><input type="number" class="form-control form-control-sm border-0 p-0 text-end"
-                  value="${r.moq ?? ''}" step="any" placeholder="—" style="background:transparent;width:65px"
-                  onchange="window._addOcrUpdate(${i},'moq',this.value?parseFloat(this.value):null)"></td>
-                <td><input type="text" class="form-control form-control-sm border-0 p-0"
-                  value="${escHtml(r.unit||'kg')}" style="background:transparent;width:45px"
-                  onchange="window._addOcrUpdate(${i},'unit',this.value)"></td>
-                <td><select class="form-select form-select-sm border-0 p-0" style="background:transparent;width:70px"
-                  onchange="window._addOcrUpdate(${i},'price_type',this.value)">
-                  <option value="netto" ${(r.price_type||'netto')==='netto'?'selected':''}>Netto</option>
-                  <option value="brutto" ${r.price_type==='brutto'?'selected':''}>Brutto</option>
-                </select></td>
-                <td><select class="form-select form-select-sm border-0 p-0" style="background:transparent;width:105px"
-                  onchange="window._addOcrUpdate(${i},'category',this.value)">
-                  ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}" ${r.category===v?"selected":""}>${l}</option>`).join("")}
-                </select></td>
+                <td class="text-end">
+                  <input type="number" class="ocr-edit-input text-end fw-semibold text-success"
+                    value="${r.price_original}" step="any" style="width:80px"
+                    onchange="window._addOcrUpdate(${i},'price_original',parseFloat(this.value))">
+                </td>
+                <td>
+                  <select class="ocr-edit-select" style="width:65px"
+                    onchange="window._addOcrUpdate(${i},'currency',this.value)">
+                    ${["PLN","EUR","USD"].map(c=>`<option ${r.currency===c?"selected":""}>${c}</option>`).join("")}
+                  </select>
+                </td>
+                <td class="text-end">
+                  <input type="number" class="ocr-edit-input text-end"
+                    value="${r.moq ?? ''}" step="any" placeholder="—" style="width:60px"
+                    onchange="window._addOcrUpdate(${i},'moq',this.value?parseFloat(this.value):null)">
+                </td>
+                <td>
+                  <input type="text" class="ocr-edit-input"
+                    value="${escHtml(r.unit||'kg')}" style="width:42px"
+                    onchange="window._addOcrUpdate(${i},'unit',this.value)">
+                </td>
+                <td>
+                  <select class="ocr-edit-select" style="width:100px"
+                    onchange="window._addOcrUpdate(${i},'category',this.value)">
+                    ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}" ${r.category===v?"selected":""}>${l}</option>`).join("")}
+                  </select>
+                </td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -2215,9 +2370,21 @@ const App = (() => {
     const checked = [...document.querySelectorAll(".add-ocr-chk:checked")]
       .map(cb => parseInt(cb.dataset.idx));
     if (!checked.length) { toast("Zaznacz co najmniej jedną pozycję", "warning"); return; }
-    const rows = checked.map(i => _addOcrRows[i]);
+    const rows = checked.map(i => ({..._addOcrRows[i]}));
     const supplierOverride = document.getElementById("add-ocr-supplier")?.value.trim() || null;
     if (supplierOverride) rows.forEach(r => { if (!r.supplier) r.supplier = supplierOverride; });
+
+    // Apply global quote fields to all rows
+    const globalPriceType  = document.getElementById("ocr-global-price-type")?.value || "netto";
+    const globalIncoterm   = document.getElementById("ocr-global-incoterm")?.value || null;
+    const globalQuoteDate  = document.getElementById("ocr-global-quote-date")?.value || null;
+    const globalValidUntil = document.getElementById("ocr-global-valid-until")?.value || null;
+    rows.forEach(r => {
+      r.price_type  = globalPriceType;
+      r.incoterm    = globalIncoterm || r.incoterm || null;
+      r.quote_date  = globalQuoteDate || r.quote_date || null;
+      r.valid_until = globalValidUntil || r.valid_until || null;
+    });
 
     // Duplicate check
     const dupes = _checkDuplicates(rows);
@@ -3290,12 +3457,6 @@ const App = (() => {
             <option value="kapsulka"${(r.category||"")==="kapsulka"?" selected":""}>Kapsułka</option>
           </select>
         </td>
-        <td>
-          <select class="form-select form-select-sm irm-price-type" data-idx="${i}">
-            <option value="netto"${(r.price_type||"netto")==="netto"?" selected":""}>Netto</option>
-            <option value="brutto"${r.price_type==="brutto"?" selected":""}>Brutto</option>
-          </select>
-        </td>
       </tr>`).join("");
   }
 
@@ -3308,6 +3469,10 @@ const App = (() => {
     if (!email) return;
 
     const supplierOverride = document.getElementById("irm-supplier").value.trim();
+    const globalPriceType = document.getElementById("irm-global-price-type").value;
+    const globalIncoterm  = document.getElementById("irm-global-incoterm").value || null;
+    const globalQuoteDate = document.getElementById("irm-global-quote-date").value || null;
+    const globalValidUntil= document.getElementById("irm-global-valid-until").value || null;
 
     // Collect checked rows with edited values
     const rows = [];
@@ -3320,7 +3485,10 @@ const App = (() => {
         currency:       document.querySelector(`.irm-currency[data-idx="${i}"]`).value,
         moq:            parseFloat(document.querySelector(`.irm-moq[data-idx="${i}"]`).value) || null,
         category:       document.querySelector(`.irm-cat[data-idx="${i}"]`).value,
-        price_type:     document.querySelector(`.irm-price-type[data-idx="${i}"]`).value,
+        incoterm:       globalIncoterm,
+        quote_date:     globalQuoteDate,
+        valid_until:    globalValidUntil,
+        price_type:     globalPriceType,
         contact_email:  email.from_addr,
         quantity:       1,
       });

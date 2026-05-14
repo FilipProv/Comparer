@@ -762,12 +762,44 @@
                   </div>
 
                   <!-- Supplier override -->
-                  <div class="mb-3">
+                  <div class="mb-2">
                     <label class="form-label form-label-sm fw-semibold">Dostawca <span class="text-muted fw-normal">(opcjonalnie — nadpisuje AI)</span></label>
                     <input type="text" class="form-control form-control-sm" id="add-ocr-supplier"
                       list="add-ocr-supplier-list" placeholder="np. Aogubio">
                     <datalist id="add-ocr-supplier-list"></datalist>
                     <div id="add-ocr-supplier-hint" class="mt-1"></div>
+                  </div>
+
+                  <!-- Global quote fields -->
+                  <div class="row g-2 mb-3">
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Typ ceny</label>
+                      <select class="form-select form-select-sm" id="ocr-global-price-type">
+                        <option value="netto" selected>Netto</option>
+                        <option value="brutto">Brutto</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Baza dostawy</label>
+                      <select class="form-select form-select-sm" id="ocr-global-incoterm">
+                        <option value="">—</option>
+                        <option value="DDP">DDP</option>
+                        <option value="DAP">DAP</option>
+                        <option value="EXW">EXW</option>
+                        <option value="FOB">FOB</option>
+                        <option value="CIF">CIF</option>
+                        <option value="FCA">FCA</option>
+                        <option value="CPT">CPT</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Data wyceny</label>
+                      <input type="date" class="form-control form-control-sm" id="ocr-global-quote-date">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Ważna do</label>
+                      <input type="date" class="form-control form-control-sm" id="ocr-global-valid-until">
+                    </div>
                   </div>
 
                   <!-- Analyze btn -->
@@ -846,6 +878,37 @@
                       list="add-ocr-supplier-list" placeholder="np. Aogubio">
                   </div>
 
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Typ ceny</label>
+                      <select class="form-select form-select-sm" id="paste-global-price-type">
+                        <option value="netto" selected>Netto</option>
+                        <option value="brutto">Brutto</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Baza dostawy</label>
+                      <select class="form-select form-select-sm" id="paste-global-incoterm">
+                        <option value="">—</option>
+                        <option value="DDP">DDP</option>
+                        <option value="DAP">DAP</option>
+                        <option value="EXW">EXW</option>
+                        <option value="FOB">FOB</option>
+                        <option value="CIF">CIF</option>
+                        <option value="FCA">FCA</option>
+                        <option value="CPT">CPT</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Data wyceny</label>
+                      <input type="date" class="form-control form-control-sm" id="paste-global-quote-date">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label form-label-sm fw-semibold">Ważna do</label>
+                      <input type="date" class="form-control form-control-sm" id="paste-global-valid-until">
+                    </div>
+                  </div>
+
                   <div class="mt-auto">
                     <button class="btn w-100 fw-semibold" id="paste-text-analyze-btn"
                       onclick="App.addOcrAnalyzeText()" disabled
@@ -910,11 +973,19 @@
                         </select>
                       </div>
                       <div class="col-md-6">
-                        <label class="form-label">Nazwa produktu *</label>
+                        <label class="form-label">Nazwa produktu (pełna) *</label>
                         <input type="text" class="form-control" name="product_name" required
-                          placeholder="np. Paracetamol"
-                          list="form-product-list" autocomplete="off" />
+                          placeholder="np. Sodium Butyrate 98% regular powder"
+                          list="form-product-list" autocomplete="off"
+                          oninput="(function(el){const base=document.querySelector('[name=base_name]');if(!base.dataset.manual)base.value=el.value.replace(/\s*\d[\d.,]*\s*%?.*/,'').trim()})(this)" />
                         <datalist id="form-product-list"></datalist>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Substancja bazowa <span class="text-muted fw-normal small">(do grupowania)</span></label>
+                        <input type="text" class="form-control" name="base_name"
+                          placeholder="np. Sodium Butyrate"
+                          autocomplete="off"
+                          oninput="this.dataset.manual='1'" />
                       </div>
                       <div class="col-md-6">
                         <label class="form-label">Dostawca *</label>
@@ -958,11 +1029,30 @@
                         <label class="form-label">Kurs ręczny</label>
                         <input type="number" class="form-control" name="manual_rate" min="0.001" step="any" placeholder="np. 4.27" />
                       </div>
-                      <div class="col-md-4">
+                      <div class="col-md-3">
+                        <label class="form-label">Baza dostawy
+                          <small class="text-muted fw-normal">(Incoterm)</small>
+                        </label>
+                        <select class="form-select" name="incoterm">
+                          <option value="">— brak / nieznana —</option>
+                          <option value="DDP">DDP — Dostawa opłacona do miejsca</option>
+                          <option value="DAP">DAP — Dostawa do miejsca</option>
+                          <option value="EXW">EXW — Z magazynu dostawcy</option>
+                          <option value="FOB">FOB — Free on Board</option>
+                          <option value="CIF">CIF — Koszt, ubezp. i fracht</option>
+                          <option value="FCA">FCA — Free Carrier</option>
+                          <option value="CPT">CPT — Fracht opłacony do</option>
+                        </select>
+                      </div>
+                      <div class="col-md-3">
                         <label class="form-label">Data wyceny</label>
                         <input type="date" class="form-control" name="quote_date" />
                       </div>
-                      <div class="col-md-6">
+                      <div class="col-md-3">
+                        <label class="form-label">Ważna do</label>
+                        <input type="date" class="form-control" name="valid_until" />
+                      </div>
+                      <div class="col-md-4">
                         <label class="form-label">E-mail kontaktowy</label>
                         <input type="email" class="form-control" name="contact_email" placeholder="np. oferty@dostawca.pl" />
                       </div>
@@ -1446,6 +1536,36 @@
             <input type="text" id="irm-supplier" class="form-control form-control-sm" placeholder="Wykryty automatycznie">
           </div>
         </div>
+        <div class="row g-2 mb-3 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Typ ceny</label>
+            <select id="irm-global-price-type" class="form-select form-select-sm">
+              <option value="netto" selected>Netto</option>
+              <option value="brutto">Brutto</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Baza dostawy</label>
+            <select id="irm-global-incoterm" class="form-select form-select-sm">
+              <option value="">—</option>
+              <option value="DDP">DDP</option>
+              <option value="DAP">DAP</option>
+              <option value="EXW">EXW</option>
+              <option value="FOB">FOB</option>
+              <option value="CIF">CIF</option>
+              <option value="FCA">FCA</option>
+              <option value="CPT">CPT</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Data wyceny</label>
+            <input type="date" id="irm-global-quote-date" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Ważna do</label>
+            <input type="date" id="irm-global-valid-until" class="form-control form-control-sm">
+          </div>
+        </div>
         <div id="irm-body-wrap" class="mb-3">
           <details>
             <summary class="text-muted small" style="cursor:pointer">Treść maila</summary>
@@ -1464,7 +1584,6 @@
                 <th>Waluta</th>
                 <th>MOQ (kg)</th>
                 <th>Kategoria</th>
-                <th>Typ ceny</th>
               </tr>
             </thead>
             <tbody id="irm-tbody"></tbody>

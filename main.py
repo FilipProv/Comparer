@@ -910,11 +910,13 @@ async def import_ocr_confirm(
                 "incoterm": str(row["incoterm"]).upper() if row.get("incoterm") else None,
                 "notes": str(row.get("notes") or "").strip() or None,
                 "quote_date": str(row["quote_date"]) if row.get("quote_date") else None,
+                "valid_until": str(row["valid_until"]) if row.get("valid_until") else None,
                 "contact_email": str(row["contact_email"]) if row.get("contact_email") else None,
                 "source_file": payload.source_file or None,
                 "price_pln": price_pln,
                 "exchange_rate_used": rate,
                 "price_type": str(row.get("price_type") or "netto").lower() or "netto",
+                "base_name": str(row["base_name"]).strip() if row.get("base_name") else None,
             }
             db.quotations.insert_one(doc)
             saved.append(_enrich(doc))
@@ -1127,12 +1129,14 @@ async def inbox_confirm(inbox_id: int, payload: dict = {}, db: Database = Depend
                 "incoterm": str(r["incoterm"]).upper() if r.get("incoterm") else None,
                 "notes": str(r.get("notes") or "").strip() or None,
                 "quote_date": str(r["quote_date"]) if r.get("quote_date") else None,
+                "valid_until": str(r["valid_until"]) if r.get("valid_until") else None,
                 "contact_email": r.get("contact_email") or d.get("from_addr"),
                 "source_file": source_files[0] if source_files else None,
                 "price_pln": price_pln,
                 "exchange_rate_used": rate,
                 "inbox_id": inbox_id,
                 "price_type": str(r.get("price_type") or "netto").lower() or "netto",
+                "base_name": str(r["base_name"]).strip() if r.get("base_name") else None,
             }
             db.quotations.insert_one(q_doc)
             saved.append(new_id)
