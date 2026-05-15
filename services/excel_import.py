@@ -478,6 +478,48 @@ def apply_column_mapping(file_bytes: bytes, mapping: dict[str, str]) -> tuple[li
     return rows, errors
 
 
+def apply_column_mapping_catalog(file_bytes: bytes, mapping: dict[str, str]) -> tuple[list[dict], list[str]]:
+    """Like apply_column_mapping but only extracts catalog-relevant fields (no price required)."""
+    errors: list[str] = []
+    rows: list[dict] = []
+
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
+    except Exception as exc:
+        return [], [f"Nie można odczytać pliku Excel: {exc}"]
+
+    field_to_col: dict[str, str] = {}
+    for src_col, our_field in mapping.items():
+        if our_field and our_field != "_skip" and our_field not in field_to_col:
+            if src_col in df.columns:
+                field_to_col[our_field] = src_col
+
+    def get(row, field: str, default=""):
+        col = field_to_col.get(field)
+        if col is None:
+            return default
+        v = row.get(col, default)
+        return "" if pd.isna(v) or v == "nan" else str(v).strip()
+
+    for idx, row in df.iterrows():
+        product_name = get(row, "product_name")
+        supplier     = get(row, "supplier")
+        if not product_name:
+            continue  # silently skip blank rows
+        category_raw = get(row, "category")
+        category     = _normalise_category(category_raw) if category_raw else "substancja_czynna"
+        notes_parts  = [p for p in [get(row, "notes"), get(row, "spec_label")] if p]
+        rows.append({
+            "product_name":  product_name,
+            "supplier":      supplier,
+            "category":      category,
+            "contact_email": get(row, "contact_email") or None,
+            "notes":         "; ".join(notes_parts) or None,
+        })
+
+    return rows, errors
+
+
 def build_template_excel() -> bytes:
     """Generate a full-featured template Excel file for users to fill in."""
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side

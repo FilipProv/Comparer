@@ -35,6 +35,12 @@ const App = (() => {
   async function apiFetch(url, options = {}) {
     const res = await fetch(url, options);
     if (!res.ok) {
+      if (res.status === 401) {
+        _showLoginOverlay(true);
+        const pwEl = document.getElementById("login-password");
+        if (pwEl) { pwEl.value = ""; pwEl.focus(); }
+        throw new Error("Sesja wygasła — zaloguj się ponownie");
+      }
       let detail = `HTTP ${res.status}`;
       try { detail = (await res.json()).detail || detail; } catch (_) {}
       throw new Error(detail);
@@ -1466,14 +1472,18 @@ const App = (() => {
       ? `<div class="alert alert-info py-1 small mb-2"><i class="bi bi-info-circle me-1"></i>Dostawca zostanie ustawiony jako: <strong>${escHtml(supplierOverride)}</strong></div>`
       : !hasSupplier ? `<div class="alert alert-warning py-1 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Nie zmapowano kolumny <strong>Dostawca</strong> — wpisz go w polu "Dostawca" powyżej lub zmapuj kolumnę.</div>` : "";
 
-    const requiredFields = our_fields.filter(f => f.required).map(f => f.key);
+    const catalogMode = document.getElementById("map-catalog-mode")?.checked || false;
+    const catalogRequiredFields = ["product_name"];
+    const requiredFields = catalogMode
+      ? catalogRequiredFields
+      : our_fields.filter(f => f.required).map(f => f.key);
     const mappedFieldKeys = Object.values(_mapCurrentMapping).filter(v => v !== "_skip");
     const missingReq = requiredFields.filter(f => !mappedFieldKeys.includes(f));
     const missingNote = missingReq.length
       ? `<div class="alert alert-danger py-1 small mb-2"><i class="bi bi-x-circle me-1"></i>Brakuje wymaganych pól: <strong>${missingReq.map(f => fieldLabels[f] || f).join(", ")}</strong></div>`
       : "";
 
-    const canImport = missingReq.length === 0 && (hasSupplier || supplierOverride);
+    const canImport = missingReq.length === 0 && (catalogMode || (hasSupplier || supplierOverride));
 
     document.getElementById("map-errors").innerHTML = missingNote + supplierNote;
     document.getElementById("map-preview-wrap").innerHTML = `
@@ -1528,35 +1538,51 @@ const App = (() => {
   async function mapImport() {
     if (!_mapFileBytes) { toast("Brak pliku.", "warning"); return; }
 
+    const catalogMode = document.getElementById("map-catalog-mode")?.checked || false;
     const supplierOverride = document.getElementById("map-supplier-override").value.trim();
-    const mappingToSend = { ..._mapCurrentMapping };
-
-    // If supplier not mapped but override given — add a virtual mapping marker in notes
-    // The backend will pick it up from supplier column if it exists
     const fd = new FormData();
     fd.append("file", _mapFileBytes);
-
-    const params = new URLSearchParams({ mapping_json: JSON.stringify(mappingToSend) });
+    const params = new URLSearchParams({ mapping_json: JSON.stringify(_mapCurrentMapping) });
     if (supplierOverride) params.set("supplier_override", supplierOverride);
 
     spinner(true);
     try {
-      const res = await apiFetch(`/api/import/map/confirm?${params}`, { method: "POST", body: fd });
-      const data = await res.json();
-      toast(`Import: zapisano ${data.saved} wycen${data.skipped ? `, pominięto ${data.skipped}` : ""}.`,
-        data.saved > 0 ? "success" : "warning");
-      if (data.errors?.length) {
-        document.getElementById("map-errors").innerHTML =
-          `<div class="alert alert-warning p-2 small"><strong>Błędy:</strong><ul class="mb-0">${data.errors.map(e => `<li>${escHtml(e)}</li>`).join("")}</ul></div>`;
+      if (catalogMode) {
+        const res = await apiFetch(`/api/import/map/catalog?${params}`, { method: "POST", body: fd });
+        const data = await res.json();
+        toast(`Katalog: dodano ${data.saved} wpisów${data.skipped ? `, pominięto ${data.skipped}` : ""}.`,
+          data.saved > 0 ? "success" : "warning");
+        if (data.errors?.length) {
+          document.getElementById("map-errors").innerHTML =
+            `<div class="alert alert-warning p-2 small"><strong>Błędy:</strong><ul class="mb-0">${data.errors.map(e => `<li>${escHtml(e)}</li>`).join("")}</ul></div>`;
+        }
+        document.getElementById("map-import-btn").disabled = true;
+        _leadsData = [];
+      } else {
+        const res = await apiFetch(`/api/import/map/confirm?${params}`, { method: "POST", body: fd });
+        const data = await res.json();
+        toast(`Import: zapisano ${data.saved} wycen${data.skipped ? `, pominięto ${data.skipped}` : ""}.`,
+          data.saved > 0 ? "success" : "warning");
+        if (data.errors?.length) {
+          document.getElementById("map-errors").innerHTML =
+            `<div class="alert alert-warning p-2 small"><strong>Błędy:</strong><ul class="mb-0">${data.errors.map(e => `<li>${escHtml(e)}</li>`).join("")}</ul></div>`;
+        }
+        document.getElementById("map-import-btn").disabled = true;
+        loadDashboard();
+        _loadProducts();
       }
-      document.getElementById("map-import-btn").disabled = true;
-      loadDashboard();
-      _loadProducts();
     } catch (e) {
       toast("Błąd importu: " + e.message, "danger");
     } finally {
       spinner(false);
     }
+  }
+
+  function mapCatalogToggle(on) {
+    const lbl = document.getElementById("map-import-btn-label");
+    if (lbl) lbl.textContent = on ? "Dodaj do katalogu dostawców" : "Importuj bezpośrednio do bazy";
+    // Re-run preview validation with relaxed required fields if preview was shown
+    if (_mapDetectData) _renderMapPreview();
   }
 
   // ── Export ────────────────────────────────────────────────────
@@ -1786,12 +1812,71 @@ const App = (() => {
     if (el) el.addEventListener("change", _renderTreomogTable);
   });
 
+  // ── Auth ──────────────────────────────────────────────────────
+
+  function _showLoginOverlay(show) {
+    const el = document.getElementById("login-overlay");
+    if (!el) return;
+    el.style.display = show ? "flex" : "none";
+  }
+
+  async function login() {
+    const pwEl = document.getElementById("login-password");
+    const errEl = document.getElementById("login-error");
+    const btn = document.getElementById("login-btn");
+    const password = pwEl ? pwEl.value : "";
+    errEl.style.display = "none";
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Logowanie…';
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        errEl.textContent = body.detail || "Nieprawidłowe hasło";
+        errEl.style.display = "";
+        if (pwEl) { pwEl.value = ""; pwEl.focus(); }
+      } else {
+        _showLoginOverlay(false);
+        _initApp();
+      }
+    } catch (e) {
+      errEl.textContent = "Błąd połączenia: " + e.message;
+      errEl.style.display = "";
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Zaloguj';
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    _showLoginOverlay(true);
+    const pwEl = document.getElementById("login-password");
+    if (pwEl) { pwEl.value = ""; pwEl.focus(); }
+  }
+
   // ── Init ──────────────────────────────────────────────────────
 
-  function init() {
+  function _initApp() {
     refreshRates();
     loadDashboard();
     _loadProducts();
+  }
+
+  async function init() {
+    const res = await fetch("/api/auth/check").catch(() => null);
+    if (!res || !res.ok) {
+      _showLoginOverlay(true);
+      const pwEl = document.getElementById("login-password");
+      if (pwEl) pwEl.focus();
+      return;
+    }
+    _showLoginOverlay(false);
+    _initApp();
   }
 
   document.addEventListener("DOMContentLoaded", init);
@@ -1809,6 +1894,11 @@ const App = (() => {
   let _supOffers = [];
   let _supChecked = new Set();
   let _supPipedrive = null;
+
+  // Leads / katalog dostawców — state
+  let _leadsData = [];
+  let _leadAddModal = null;
+  let _leadsPdCache = {};   // supplier → pipedrive result
   let _supSelectedContact = null;   // currently selected contact person
   let _orderModal = null;
   let _smtpModal  = null;
@@ -1990,12 +2080,14 @@ const App = (() => {
     try {
       // Send pasted text as a .txt file to the existing OCR endpoint
       const supplierHint = (document.getElementById("paste-text-supplier").value || "").trim();
+      const catalogMode = document.getElementById("paste-catalog-mode")?.checked || false;
       const blob = new Blob([txt], { type: "text/plain" });
       const form = new FormData();
       form.append("file", blob, "wklejony_tekst.txt");
       if (supplierHint) form.append("supplier_hint", supplierHint);
 
-      const res = await fetch("/api/import/ocr", { method: "POST", body: form });
+      const url = `/api/import/ocr${catalogMode ? "?catalog_mode=true" : ""}`;
+      const res = await fetch(url, { method: "POST", body: form });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${res.status}`);
@@ -2028,6 +2120,12 @@ const App = (() => {
     const saveBtn    = document.getElementById("paste-text-save-btn");
     const countBadge = document.getElementById("paste-text-count");
 
+    // Pre-fill supplier from global field into rows that have no supplier
+    const globalSupplier = (document.getElementById("paste-text-supplier")?.value || "").trim();
+    if (globalSupplier) {
+      rows.forEach(r => { if (!r.supplier) r.supplier = globalSupplier; });
+    }
+
     countBadge.textContent = rows.length;
 
     if (!rows.length) {
@@ -2041,59 +2139,73 @@ const App = (() => {
     }
 
     const catLabel = {substancja_czynna:"Substancja", opakowanie:"Opakowanie", kapsula:"Kapsułka"};
-    let html = `<table class="table table-sm mb-0 align-middle" style="font-size:.83rem">
-      <thead class="table-light sticky-top">
-        <tr>
-          <th style="width:36px">
-            <input type="checkbox" class="form-check-input" id="paste-text-chk-all"
-              onchange="App.pasteTextToggleAll(this.checked)">
-          </th>
+    const catalogMode = document.getElementById("paste-catalog-mode")?.checked || false;
+
+    const chkHeader = `<th style="width:36px"><input type="checkbox" class="form-check-input" id="paste-text-chk-all" onchange="App.pasteTextToggleAll(this.checked)"></th>`;
+
+    let html;
+    if (catalogMode) {
+      html = `<div class="alert alert-primary m-2 py-2 small"><i class="bi bi-journal-bookmark me-1"></i>
+        <strong>Tryb katalogu</strong> — pozycje zostaną zapisane w Katalogu dostawców (bez cen).</div>
+      <table class="table table-sm mb-0 align-middle" style="font-size:.83rem">
+        <thead class="table-light sticky-top"><tr>
+          ${chkHeader}
+          <th>Produkt</th><th>Dostawca</th><th>E-mail</th><th>Uwagi</th><th>Kategoria</th>
+        </tr></thead><tbody>`;
+      rows.forEach((r, i) => {
+        html += `<tr>
+          <td><input type="checkbox" class="form-check-input paste-text-chk" data-idx="${i}" checked></td>
+          <td style="min-width:140px"><input type="text" class="ocr-edit-input fw-semibold" value="${escHtml(r.product_name||"")}"
+            onchange="window._pasteTextUpdate(${i},'product_name',this.value)" style="min-width:130px"></td>
+          <td style="min-width:110px"><input type="text" class="ocr-edit-input text-muted" id="paste-sup-${i}" value="${escHtml(r.supplier||"")}" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'supplier',this.value)" style="min-width:100px"></td>
+          <td style="min-width:130px"><input type="email" class="ocr-edit-input" value="${escHtml(r.contact_email||"")}" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'contact_email',this.value||null)" style="min-width:120px"></td>
+          <td style="min-width:110px"><input type="text" class="ocr-edit-input" value="${escHtml(r.notes||"")}" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'notes',this.value||null)" style="min-width:100px"></td>
+          <td><select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'category',this.value)" style="width:100px">
+            ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}"${(r.category||"substancja_czynna")===v?" selected":""}>${l}</option>`).join("")}
+          </select></td>
+        </tr>`;
+      });
+    } else {
+      html = `<table class="table table-sm mb-0 align-middle" style="font-size:.83rem">
+        <thead class="table-light sticky-top"><tr>
+          ${chkHeader}
           <th>Produkt</th><th>Dostawca</th><th class="text-end">Cena/jedn.</th><th>Waluta</th>
           <th class="text-end">MOQ</th><th>Jedn.</th><th>Kategoria</th>
-        </tr>
-      </thead><tbody>`;
-
-    rows.forEach((r, i) => {
-      html += `<tr>
-        <td><input type="checkbox" class="form-check-input paste-text-chk" data-idx="${i}" checked></td>
-        <td style="min-width:140px">
-          <input type="text" class="ocr-edit-input fw-semibold" value="${escHtml(r.product_name||"")}"
-            onchange="window._pasteTextUpdate(${i},'product_name',this.value)" style="min-width:130px">
-        </td>
-        <td style="min-width:110px">
-          <input type="text" class="ocr-edit-input text-muted" value="${escHtml(r.supplier||"")}" placeholder="—"
-            onchange="window._pasteTextUpdate(${i},'supplier',this.value)" style="min-width:100px">
-        </td>
-        <td class="text-end" style="min-width:75px">
-          <input type="number" class="ocr-edit-input text-end fw-semibold text-success"
+        </tr></thead><tbody>`;
+      rows.forEach((r, i) => {
+        html += `<tr>
+          <td><input type="checkbox" class="form-check-input paste-text-chk" data-idx="${i}" checked></td>
+          <td style="min-width:140px"><input type="text" class="ocr-edit-input fw-semibold" value="${escHtml(r.product_name||"")}"
+            onchange="window._pasteTextUpdate(${i},'product_name',this.value)" style="min-width:130px"></td>
+          <td style="min-width:110px"><input type="text" class="ocr-edit-input text-muted" id="paste-sup-${i}" value="${escHtml(r.supplier||"")}" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'supplier',this.value)" style="min-width:100px"></td>
+          <td class="text-end" style="min-width:75px"><input type="number" class="ocr-edit-input text-end fw-semibold text-success"
             value="${r.price_original ?? ""}" step="any"
-            onchange="window._pasteTextUpdate(${i},'price_original',parseFloat(this.value))" style="width:70px">
-        </td>
-        <td>
-          <select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'currency',this.value)" style="width:65px">
+            onchange="window._pasteTextUpdate(${i},'price_original',parseFloat(this.value))" style="width:70px"></td>
+          <td><select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'currency',this.value)" style="width:65px">
             ${["PLN","EUR","USD"].map(c=>`<option${(r.currency||"PLN")===c?" selected":""}>${c}</option>`).join("")}
-          </select>
-        </td>
-        <td class="text-end">
-          <input type="number" class="ocr-edit-input text-end" value="${r.moq ?? ""}" step="any" placeholder="—"
-            onchange="window._pasteTextUpdate(${i},'moq',this.value?parseFloat(this.value):null)" style="width:60px">
-        </td>
-        <td>
-          <input type="text" class="ocr-edit-input" value="${escHtml(r.unit||"kg")}"
-            onchange="window._pasteTextUpdate(${i},'unit',this.value)" style="width:42px">
-        </td>
-        <td>
-          <select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'category',this.value)" style="width:100px">
+          </select></td>
+          <td class="text-end"><input type="number" class="ocr-edit-input text-end" value="${r.moq ?? ""}" step="any" placeholder="—"
+            onchange="window._pasteTextUpdate(${i},'moq',this.value?parseFloat(this.value):null)" style="width:60px"></td>
+          <td><input type="text" class="ocr-edit-input" value="${escHtml(r.unit||"kg")}"
+            onchange="window._pasteTextUpdate(${i},'unit',this.value)" style="width:42px"></td>
+          <td><select class="ocr-edit-select" onchange="window._pasteTextUpdate(${i},'category',this.value)" style="width:100px">
             ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}"${(r.category||"substancja_czynna")===v?" selected":""}>${l}</option>`).join("")}
-          </select>
-        </td>
-      </tr>`;
-    });
+          </select></td>
+        </tr>`;
+      });
+    }
 
     html += `</tbody></table>`;
     results.innerHTML = html;
     footer.style.removeProperty("display");
     saveBtn.disabled = false;
+    saveBtn.innerHTML = catalogMode
+      ? `<i class="bi bi-journal-bookmark me-1"></i>Dodaj do katalogu`
+      : `<i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone`;
   }
 
   window._pasteTextUpdate = function(idx, field, value) {
@@ -2111,6 +2223,32 @@ const App = (() => {
 
     const supplierOverride = (document.getElementById("paste-text-supplier").value || "").trim();
     if (supplierOverride) checked.forEach(r => { if (!r.supplier) r.supplier = supplierOverride; });
+
+    const catalogMode = document.getElementById("paste-catalog-mode")?.checked || false;
+
+    if (catalogMode) {
+      try {
+        const leads = checked.filter(r => r.product_name).map(r => ({
+          product_name:  r.product_name,
+          base_name:     r.base_name || null,
+          supplier:      r.supplier || supplierOverride || "",
+          category:      r.category || "substancja_czynna",
+          contact_email: r.contact_email || null,
+          notes:         r.notes || null,
+        }));
+        const res = await apiFetch("/api/leads/bulk", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(leads),
+        });
+        const data = await res.json();
+        toast(`Dodano ${data.saved} wpisów do katalogu dostawców`, "success");
+        pasteTextClear();
+        _leadsData = [];
+      } catch(e) {
+        toast("Błąd zapisu do katalogu: " + e.message, "danger");
+      }
+      return;
+    }
 
     // Apply global quote fields to all rows
     const globalPriceType  = document.getElementById("paste-global-price-type")?.value || "netto";
@@ -2179,9 +2317,11 @@ const App = (() => {
       </div>`;
 
       try {
+        const catalogMode = document.getElementById("ocr-catalog-mode")?.checked || false;
         const form = new FormData();
         form.append("file", file);
-        const res = await fetch("/api/import/ocr", { method: "POST", body: form });
+        const ocrUrl = `/api/import/ocr${catalogMode ? "?catalog_mode=true" : ""}`;
+        const res = await fetch(ocrUrl, { method: "POST", body: form });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || `HTTP ${res.status}`);
@@ -2251,105 +2391,163 @@ const App = (() => {
     const badge  = document.getElementById("add-ocr-count");
     const impBtn = document.getElementById("add-ocr-import-btn");
     const selBtn = document.getElementById("add-ocr-selall-btn");
+    const catalogMode = document.getElementById("ocr-catalog-mode")?.checked || false;
+
+    // Pre-fill supplier from global field into rows that have no supplier
+    const globalSupplier = (document.getElementById("add-ocr-supplier")?.value || "").trim();
+    if (globalSupplier) {
+      rows.forEach(r => { if (!r.supplier) r.supplier = globalSupplier; });
+    }
+
     badge.textContent = `${rows.length} pozycji`;
     badge.style.display = rows.length ? "" : "none";
     impBtn.style.display = rows.length ? "" : "none";
+    impBtn.innerHTML = catalogMode
+      ? `<i class="bi bi-journal-bookmark me-1"></i>Dodaj do katalogu`
+      : `<i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone`;
     selBtn.style.display = rows.length ? "" : "none";
 
     if (!rows.length) {
-      wrap.innerHTML = `<div class="alert alert-warning m-3"><i class="bi bi-exclamation-circle me-2"></i>Nie znaleziono pozycji cenowych. Sprawdź jakość pliku.</div>`;
+      wrap.innerHTML = `<div class="alert alert-warning m-3"><i class="bi bi-exclamation-circle me-2"></i>Nie znaleziono pozycji. Sprawdź jakość pliku.</div>`;
       return;
     }
 
     const catLabel = {substancja_czynna:"Substancja", opakowanie:"Opakowanie", kapsula:"Kapsułka"};
-    wrap.innerHTML = `
-      <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle mb-0" style="font-size:.83rem">
-          <thead>
-            <tr style="background:#2c3e50;color:#fff">
-              <th style="width:3%">
-                <input type="checkbox" class="form-check-input" id="add-ocr-chk-all"
-                  onchange="App.addOcrToggleAll(this.checked)">
-              </th>
-              <th>Produkt</th>
-              <th>Dostawca</th>
-              <th class="text-end">Cena/kg</th>
-              <th>Waluta</th>
-              <th class="text-end">MOQ</th>
-              <th>Jedn.</th>
-              <th>Kategoria</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((r, i) => `
-              <tr>
-                <td><input type="checkbox" class="form-check-input add-ocr-chk" checked data-idx="${i}"></td>
-                <td style="min-width:160px">
-                  <input type="text" class="ocr-edit-input fw-semibold"
-                    id="add-ocr-prod-${i}"
-                    value="${escHtml(r.product_name)}" style="min-width:140px"
-                    onchange="window._addOcrUpdate(${i},'product_name',this.value)">
-                  ${r._suggested_product ? `
-                  <div class="mt-1">
-                    <span class="text-muted" style="font-size:.75rem">Baza: </span>
-                    <a href="#" class="text-success fw-semibold" style="font-size:.75rem;text-decoration:none"
-                      onclick="event.preventDefault();
-                        document.getElementById('add-ocr-prod-${i}').value='${escHtml(r._suggested_product)}';
-                        window._addOcrUpdate(${i},'product_name','${escHtml(r._suggested_product)}');
-                        this.parentElement.remove()">
-                      ✓ ${escHtml(r._suggested_product)}
-                    </a>
-                  </div>` : ''}
-                </td>
-                <td style="min-width:120px">
-                  <input type="text" class="ocr-edit-input text-muted"
-                    id="add-ocr-sup-${i}"
-                    value="${escHtml(r.supplier||'')}" placeholder="—" style="width:120px"
-                    onchange="window._addOcrUpdate(${i},'supplier',this.value)">
-                  ${r._suggested_supplier ? `
-                  <div class="mt-1">
-                    <span class="text-muted" style="font-size:.75rem">Baza: </span>
-                    <a href="#" class="text-primary fw-semibold" style="font-size:.75rem;text-decoration:none"
-                      onclick="event.preventDefault();
-                        document.getElementById('add-ocr-sup-${i}').value='${escHtml(r._suggested_supplier)}';
-                        window._addOcrUpdate(${i},'supplier','${escHtml(r._suggested_supplier)}');
-                        this.parentElement.remove()">
-                      ✓ ${escHtml(r._suggested_supplier)}
-                    </a>
-                  </div>` : ''}
-                  ${r._supplier_from_email ? `<div style="font-size:.72rem" class="text-info"><i class="bi bi-envelope me-1"></i>z emaila</div>` : ''}
-                </td>
-                <td class="text-end">
-                  <input type="number" class="ocr-edit-input text-end fw-semibold text-success"
-                    value="${r.price_original}" step="any" style="width:80px"
-                    onchange="window._addOcrUpdate(${i},'price_original',parseFloat(this.value))">
-                </td>
-                <td>
-                  <select class="ocr-edit-select" style="width:65px"
-                    onchange="window._addOcrUpdate(${i},'currency',this.value)">
-                    ${["PLN","EUR","USD"].map(c=>`<option ${r.currency===c?"selected":""}>${c}</option>`).join("")}
-                  </select>
-                </td>
-                <td class="text-end">
-                  <input type="number" class="ocr-edit-input text-end"
-                    value="${r.moq ?? ''}" step="any" placeholder="—" style="width:60px"
-                    onchange="window._addOcrUpdate(${i},'moq',this.value?parseFloat(this.value):null)">
-                </td>
-                <td>
-                  <input type="text" class="ocr-edit-input"
-                    value="${escHtml(r.unit||'kg')}" style="width:42px"
-                    onchange="window._addOcrUpdate(${i},'unit',this.value)">
-                </td>
-                <td>
-                  <select class="ocr-edit-select" style="width:100px"
-                    onchange="window._addOcrUpdate(${i},'category',this.value)">
-                    ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}" ${r.category===v?"selected":""}>${l}</option>`).join("")}
-                  </select>
-                </td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>`;
+
+    // shared product + supplier cells
+    const productCell = (r, i) => `
+      <td style="min-width:160px">
+        <input type="text" class="ocr-edit-input fw-semibold"
+          id="add-ocr-prod-${i}" value="${escHtml(r.product_name)}" style="min-width:140px"
+          onchange="window._addOcrUpdate(${i},'product_name',this.value)">
+        ${r._suggested_product ? `
+        <div class="mt-1">
+          <span class="text-muted" style="font-size:.75rem">Baza: </span>
+          <a href="#" class="text-success fw-semibold" style="font-size:.75rem;text-decoration:none"
+            onclick="event.preventDefault();
+              document.getElementById('add-ocr-prod-${i}').value='${escHtml(r._suggested_product)}';
+              window._addOcrUpdate(${i},'product_name','${escHtml(r._suggested_product)}');
+              this.parentElement.remove()">✓ ${escHtml(r._suggested_product)}</a>
+        </div>` : ''}
+      </td>`;
+
+    const supplierCell = (r, i) => `
+      <td style="min-width:120px">
+        <input type="text" class="ocr-edit-input text-muted"
+          id="add-ocr-sup-${i}" value="${escHtml(r.supplier||'')}" placeholder="—" style="width:120px"
+          onchange="window._addOcrUpdate(${i},'supplier',this.value)">
+        ${r._suggested_supplier ? `
+        <div class="mt-1">
+          <span class="text-muted" style="font-size:.75rem">Baza: </span>
+          <a href="#" class="text-primary fw-semibold" style="font-size:.75rem;text-decoration:none"
+            onclick="event.preventDefault();
+              document.getElementById('add-ocr-sup-${i}').value='${escHtml(r._suggested_supplier)}';
+              window._addOcrUpdate(${i},'supplier','${escHtml(r._suggested_supplier)}');
+              this.parentElement.remove()">✓ ${escHtml(r._suggested_supplier)}</a>
+        </div>` : ''}
+        ${r._supplier_from_email ? `<div style="font-size:.72rem" class="text-info"><i class="bi bi-envelope me-1"></i>z emaila</div>` : ''}
+      </td>`;
+
+    if (catalogMode) {
+      // Catalog mode — simplified table (no price/currency/moq/unit)
+      wrap.innerHTML = `
+        <div class="alert alert-primary m-2 py-2 small"><i class="bi bi-journal-bookmark me-1"></i>
+          <strong>Tryb katalogu</strong> — pozycje zostaną zapisane w Katalogu dostawców (bez cen).</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" style="font-size:.83rem">
+            <thead>
+              <tr style="background:#0d6efd;color:#fff">
+                <th style="width:3%"><input type="checkbox" class="form-check-input" id="add-ocr-chk-all"
+                  onchange="App.addOcrToggleAll(this.checked)"></th>
+                <th>Produkt / substancja</th>
+                <th>Dostawca</th>
+                <th>E-mail kontaktowy</th>
+                <th>Uwagi</th>
+                <th>Kategoria</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((r, i) => `
+                <tr>
+                  <td><input type="checkbox" class="form-check-input add-ocr-chk" checked data-idx="${i}"></td>
+                  ${productCell(r, i)}
+                  ${supplierCell(r, i)}
+                  <td style="min-width:140px">
+                    <input type="email" class="ocr-edit-input" value="${escHtml(r.contact_email||'')}"
+                      placeholder="—" style="width:130px"
+                      onchange="window._addOcrUpdate(${i},'contact_email',this.value||null)">
+                  </td>
+                  <td style="min-width:120px">
+                    <input type="text" class="ocr-edit-input" value="${escHtml(r.notes||'')}"
+                      placeholder="—" style="width:110px"
+                      onchange="window._addOcrUpdate(${i},'notes',this.value||null)">
+                  </td>
+                  <td>
+                    <select class="ocr-edit-select" style="width:100px"
+                      onchange="window._addOcrUpdate(${i},'category',this.value)">
+                      ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}" ${r.category===v?"selected":""}>${l}</option>`).join("")}
+                    </select>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    } else {
+      // Normal quotation mode
+      wrap.innerHTML = `
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" style="font-size:.83rem">
+            <thead>
+              <tr style="background:#2c3e50;color:#fff">
+                <th style="width:3%"><input type="checkbox" class="form-check-input" id="add-ocr-chk-all"
+                  onchange="App.addOcrToggleAll(this.checked)"></th>
+                <th>Produkt</th>
+                <th>Dostawca</th>
+                <th class="text-end">Cena/kg</th>
+                <th>Waluta</th>
+                <th class="text-end">MOQ</th>
+                <th>Jedn.</th>
+                <th>Kategoria</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((r, i) => `
+                <tr>
+                  <td><input type="checkbox" class="form-check-input add-ocr-chk" checked data-idx="${i}"></td>
+                  ${productCell(r, i)}
+                  ${supplierCell(r, i)}
+                  <td class="text-end">
+                    <input type="number" class="ocr-edit-input text-end fw-semibold text-success"
+                      value="${r.price_original}" step="any" style="width:80px"
+                      onchange="window._addOcrUpdate(${i},'price_original',parseFloat(this.value))">
+                  </td>
+                  <td>
+                    <select class="ocr-edit-select" style="width:65px"
+                      onchange="window._addOcrUpdate(${i},'currency',this.value)">
+                      ${["PLN","EUR","USD"].map(c=>`<option ${r.currency===c?"selected":""}>${c}</option>`).join("")}
+                    </select>
+                  </td>
+                  <td class="text-end">
+                    <input type="number" class="ocr-edit-input text-end"
+                      value="${r.moq ?? ''}" step="any" placeholder="—" style="width:60px"
+                      onchange="window._addOcrUpdate(${i},'moq',this.value?parseFloat(this.value):null)">
+                  </td>
+                  <td>
+                    <input type="text" class="ocr-edit-input"
+                      value="${escHtml(r.unit||'kg')}" style="width:42px"
+                      onchange="window._addOcrUpdate(${i},'unit',this.value)">
+                  </td>
+                  <td>
+                    <select class="ocr-edit-select" style="width:100px"
+                      onchange="window._addOcrUpdate(${i},'category',this.value)">
+                      ${Object.entries(catLabel).map(([v,l])=>`<option value="${v}" ${r.category===v?"selected":""}>${l}</option>`).join("")}
+                    </select>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
   }
 
   window._addOcrUpdate = function(idx, field, value) {
@@ -2373,6 +2571,34 @@ const App = (() => {
     const rows = checked.map(i => ({..._addOcrRows[i]}));
     const supplierOverride = document.getElementById("add-ocr-supplier")?.value.trim() || null;
     if (supplierOverride) rows.forEach(r => { if (!r.supplier) r.supplier = supplierOverride; });
+
+    const catalogMode = document.getElementById("ocr-catalog-mode")?.checked || false;
+
+    if (catalogMode) {
+      // Save to leads catalog
+      spinner(true);
+      try {
+        const leads = rows.filter(r => r.product_name).map(r => ({
+          product_name:  r.product_name,
+          base_name:     r.base_name || null,
+          supplier:      r.supplier || supplierOverride || "",
+          category:      r.category || "substancja_czynna",
+          contact_email: r.contact_email || null,
+          notes:         r.notes || null,
+        }));
+        const res = await apiFetch("/api/leads/bulk", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(leads),
+        });
+        const data = await res.json();
+        toast(`Dodano ${data.saved} wpisów do katalogu dostawców`, "success");
+        addOcrClear();
+        _leadsData = [];  // force reload next time
+      } catch(e) {
+        toast("Błąd zapisu do katalogu: " + e.message, "danger");
+      } finally { spinner(false); }
+      return;
+    }
 
     // Apply global quote fields to all rows
     const globalPriceType  = document.getElementById("ocr-global-price-type")?.value || "netto";
@@ -2726,6 +2952,8 @@ const App = (() => {
 
   // ── Public API ────────────────────────────────────────────────
   return {
+    login,
+    logout,
     refreshRates,
     loadDashboard,
     dashSelectProduct,
@@ -2761,6 +2989,7 @@ const App = (() => {
     mapPreview,
     mapExportTemplate,
     mapImport,
+    mapCatalogToggle,
     _mapUpdate,
     // legacy calc still works if bookmarked
     calcSuggest: ordSuggest,
@@ -2813,6 +3042,16 @@ const App = (() => {
     inboxReject,
     inboxCheckAll,
     inboxRejectDirect,
+    // Leads / katalog dostawców
+    loadLeads,
+    leadsFilter,
+    leadsOpenAdd,
+    leadsSave,
+    leadsDelete,
+    leadsMatchPipedrive,
+    ocrSupplierPropagate,
+    ocrCatalogToggle,
+    pasteCatalogToggle,
   };
 
   async function _initSuppliers() {
@@ -3534,6 +3773,311 @@ const App = (() => {
   async function inboxRejectDirect(id) {
     _inboxReviewId = id;
     await inboxReject();
+  }
+
+  // ── Katalog dostawców (leads) ──────────────────────────────────────────────
+
+  function ocrSupplierPropagate(value, idPrefix) {
+    // Propagate supplier value to all row supplier inputs in the results table
+    let i = 0;
+    while (true) {
+      const el = document.getElementById(`${idPrefix}${i}`);
+      if (!el) break;
+      el.value = value;
+      // Also update the in-memory rows array
+      if (idPrefix === "add-ocr-sup-" && _addOcrRows[i] !== undefined) {
+        _addOcrRows[i].supplier = value;
+      } else if (idPrefix === "paste-sup-" && _pasteTextRows[i] !== undefined) {
+        _pasteTextRows[i].supplier = value;
+      }
+      i++;
+    }
+  }
+
+  function ocrCatalogToggle(on) {
+    // Hide/show global price/date fields when catalog mode is on
+    const globalWrap = document.getElementById("ocr-catalog-wrap")?.closest(".mb-3") ||
+                       document.querySelector("#ocr-global-price-type")?.closest(".row");
+    if (globalWrap) globalWrap.style.opacity = on ? ".35" : "";
+    if (globalWrap) globalWrap.style.pointerEvents = on ? "none" : "";
+    // Re-render results if already loaded
+    if (_addOcrRows.length) _addOcrRenderResults(_addOcrRows);
+    // Update save button label
+    const btn = document.getElementById("add-ocr-import-btn");
+    if (btn) btn.innerHTML = on
+      ? `<i class="bi bi-journal-bookmark me-1"></i>Dodaj do katalogu`
+      : `<i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone`;
+  }
+
+  function pasteCatalogToggle(on) {
+    const globalWrap = document.querySelector("#paste-global-price-type")?.closest(".row");
+    if (globalWrap) globalWrap.style.opacity = on ? ".35" : "";
+    if (globalWrap) globalWrap.style.pointerEvents = on ? "none" : "";
+    if (_pasteTextRows.length) _pasteTextRenderResults(_pasteTextRows);
+    const btn = document.getElementById("paste-text-save-btn");
+    if (btn) btn.innerHTML = on
+      ? `<i class="bi bi-journal-bookmark me-1"></i>Dodaj do katalogu`
+      : `<i class="bi bi-check2-circle me-1"></i>Zapisz zaznaczone`;
+  }
+
+  function _getLeadModal() {
+    if (!_leadAddModal) _leadAddModal = new bootstrap.Modal(document.getElementById("leadAddModal"));
+    return _leadAddModal;
+  }
+
+  async function loadLeads() {
+    const wrap = document.getElementById("leads-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = `<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>`;
+    try {
+      _leadsData = await apiFetch("/api/leads").then(r => r.json());
+      leadsFilter();
+    } catch(e) {
+      wrap.innerHTML = `<div class="alert alert-danger">Błąd ładowania: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function leadsFilter() {
+    const wrap = document.getElementById("leads-wrap");
+    const countEl = document.getElementById("leads-count");
+    const query = (document.getElementById("leads-search")?.value || "").toLowerCase().trim();
+    const cat = document.getElementById("leads-cat-filter")?.value || "";
+
+    let rows = _leadsData;
+    if (cat) rows = rows.filter(r => r.category === cat);
+    if (query) rows = rows.filter(r =>
+      (r.product_name || "").toLowerCase().includes(query) ||
+      (r.base_name || "").toLowerCase().includes(query) ||
+      (r.supplier || "").toLowerCase().includes(query)
+    );
+
+    // Update badge
+    if (countEl) {
+      countEl.textContent = `${rows.length} wpisów`;
+      countEl.style.display = rows.length ? "" : "none";
+    }
+
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="text-center text-muted py-5">
+        <i class="bi bi-journal-bookmark fs-1 d-block mb-2 opacity-25"></i>
+        ${query || cat ? "Brak wyników dla wybranych filtrów." : "Brak wpisów — dodaj dostawcę oferującego substancję bez wyceny."}
+      </div>`;
+      return;
+    }
+
+    // Group by base_name / product_name (reuse client extraction logic)
+    function _leadBaseName(r) {
+      if (r.base_name) return r.base_name;
+      return (r.product_name || "")
+        .replace(/\s+\d[\d.,]*\s*%.*$/i, "")
+        .replace(/\s+(regular|coated|fine|granulated|powder|extract|complex|premium|micronized|buffered|sustained|release|enteric)\b.*$/i, "")
+        .trim() || r.product_name;
+    }
+
+    const CAT_LABELS = {
+      substancja_czynna: { label: "Substancje czynne", icon: "capsule", color: "#0d6efd" },
+      opakowanie:        { label: "Opakowania",         icon: "box-seam", color: "#6f42c1" },
+      kapsula:           { label: "Kapsułki",           icon: "circle",   color: "#20c997" },
+    };
+
+    // Group by category → base_name → rows
+    const byCat = {};
+    rows.forEach(r => {
+      const c = r.category || "substancja_czynna";
+      const bn = _leadBaseName(r);
+      if (!byCat[c]) byCat[c] = {};
+      if (!byCat[c][bn]) byCat[c][bn] = [];
+      byCat[c][bn].push(r);
+    });
+
+    let html = "";
+    Object.entries(byCat).forEach(([cat, groups]) => {
+      const info = CAT_LABELS[cat] || { label: cat, icon: "tag", color: "#6c757d" };
+      html += `<div class="mb-4">
+        <div class="d-flex align-items-center gap-2 mb-2 pb-1" style="border-bottom:2px solid ${info.color}">
+          <i class="bi bi-${info.icon}" style="color:${info.color};font-size:1.1rem"></i>
+          <span class="fw-bold" style="color:${info.color}">${escHtml(info.label)}</span>
+          <span class="badge bg-secondary">${Object.keys(groups).length}</span>
+        </div>`;
+
+      Object.entries(groups).sort(([a],[b]) => a.localeCompare(b)).forEach(([baseName, entries]) => {
+        const hasVariants = new Set(entries.map(e => e.product_name)).size > 1 || entries[0]?.product_name !== baseName;
+        html += `<div class="card mb-2 border-0 shadow-sm">
+          <div class="card-header d-flex align-items-center gap-2 py-2"
+               style="background:#f0f4ff;border-bottom:1px solid #dee2e6">
+            <i class="bi bi-box2 text-primary"></i>
+            <span class="fw-semibold">${escHtml(baseName)}</span>
+            <span class="badge bg-light text-secondary border ms-1" style="font-size:.72rem">${entries.length} dostawc${entries.length === 1 ? "a" : "ów"}</span>
+          </div>
+          <div class="card-body p-0">
+            <table class="table table-sm table-hover align-middle mb-0" style="font-size:.85rem">
+              <thead class="table-light">
+                <tr>
+                  <th class="ps-3" style="min-width:160px">Dostawca</th>
+                  <th>Wariant / produkt</th>
+                  <th>E-mail kontaktowy</th>
+                  <th style="min-width:180px">Pipedrive</th>
+                  <th>Uwagi</th>
+                  <th style="width:32px"></th>
+                </tr>
+              </thead>
+              <tbody>`;
+
+        entries.forEach(e => {
+          const variantLabel = e.product_name !== baseName
+            ? `<span class="text-muted small">${escHtml(e.product_name)}</span>`
+            : `<span class="text-muted small opacity-50">—</span>`;
+
+          const emailCell = e.contact_email
+            ? `<a href="mailto:${escHtml(e.contact_email)}?subject=${encodeURIComponent('Zapytanie ofertowe – ' + e.product_name)}&body=${encodeURIComponent('Dzień dobry,\n\nProszę o przesłanie aktualnej wyceny dla:\n' + e.product_name + '\n\nPozdrawiam')}"
+                class="text-decoration-none small" title="Wyślij zapytanie ofertowe">
+                <i class="bi bi-envelope me-1"></i>${escHtml(e.contact_email)}
+               </a>`
+            : `<span class="text-muted small">—</span>`;
+
+          // Pipedrive cell — look up cache
+          const pd = _leadsPdCache[e.supplier];
+          let pdCell = `<span class="text-muted small" style="font-size:.75rem">
+            <i class="bi bi-dash-circle opacity-50"></i>
+            <span class="ms-1 opacity-50">nie sprawdzono</span></span>`;
+          if (pd === null) {
+            pdCell = `<span class="text-muted small" style="font-size:.75rem">
+              <i class="bi bi-x-circle text-secondary"></i>
+              <span class="ms-1">Brak w Pipedrive</span></span>`;
+          } else if (pd && pd.found) {
+            const contact = (pd.persons || []).find(p => !p.internal && p.email) || pd.persons?.[0];
+            const nameHtml = contact?.name ? `<span class="fw-semibold">${escHtml(contact.name)}</span>` : `<span class="text-muted">${escHtml(pd.name)}</span>`;
+            const emailLink = contact?.email
+              ? `<a href="mailto:${escHtml(contact.email)}?subject=${encodeURIComponent('Zapytanie ofertowe – ' + e.product_name)}&body=${encodeURIComponent('Dzień dobry,\n\nProszę o przesłanie aktualnej wyceny dla:\n' + e.product_name + '\n\nPozdrawiam')}"
+                  class="text-decoration-none" title="${escHtml(contact.email)}">
+                  <i class="bi bi-envelope-fill text-success me-1"></i>${escHtml(contact.email)}</a>`
+              : "";
+            const phoneHtml = contact?.phone
+              ? `<a href="tel:${escHtml(contact.phone)}" class="text-decoration-none ms-1 text-muted">
+                  <i class="bi bi-telephone me-1"></i>${escHtml(contact.phone)}</a>`
+              : "";
+            pdCell = `<div style="font-size:.78rem">
+              <span class="badge bg-success-subtle text-success border border-success-subtle me-1">
+                <i class="bi bi-check-circle me-1"></i>CRM
+              </span>
+              ${nameHtml}<br>
+              ${emailLink}${phoneHtml}
+            </div>`;
+          }
+
+          html += `<tr>
+            <td class="ps-3 fw-semibold">${escHtml(e.supplier)}</td>
+            <td>${variantLabel}</td>
+            <td class="small">${emailCell}</td>
+            <td>${pdCell}</td>
+            <td class="small text-muted">${e.notes ? escHtml(e.notes.slice(0, 50)) + (e.notes.length > 50 ? "…" : "") : "—"}</td>
+            <td class="text-center">
+              <button class="btn btn-link btn-sm p-0 text-danger" title="Usuń"
+                onclick="App.leadsDelete(${e.id})">
+                <i class="bi bi-trash3" style="font-size:.8rem"></i>
+              </button>
+            </td>
+          </tr>`;
+        });
+
+        html += `</tbody></table></div></div>`;
+      });
+
+      html += `</div>`;
+    });
+
+    wrap.innerHTML = html;
+  }
+
+  async function leadsMatchPipedrive() {
+    const btn = document.getElementById("leads-pipedrive-btn");
+    if (!_leadsData.length) { toast("Załaduj katalog najpierw", "warning"); return; }
+
+    // Collect unique suppliers not yet in cache
+    const suppliers = [...new Set(_leadsData.map(r => r.supplier).filter(Boolean))];
+    const toFetch = suppliers.filter(s => !(_leadsPdCache.hasOwnProperty(s)));
+
+    if (!toFetch.length) {
+      toast("Wszystkie wyceny już sprawdzone w Pipedrive", "info");
+      leadsFilter();
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Sprawdzam…`; }
+
+    let done = 0;
+    for (const sup of toFetch) {
+      try {
+        const res = await apiFetch(`/api/suppliers/${encodeURIComponent(sup)}/pipedrive`).then(r => r.json());
+        _leadsPdCache[sup] = res.found ? res : null;
+      } catch {
+        _leadsPdCache[sup] = null;
+      }
+      done++;
+      if (btn) btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${done}/${toFetch.length}…`;
+    }
+
+    const found = Object.values(_leadsPdCache).filter(v => v).length;
+    const total = Object.keys(_leadsPdCache).length;
+    toast(`Pipedrive: znaleziono ${found} z ${total} dostawców`, found > 0 ? "success" : "warning");
+
+    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-person-lines-fill me-1"></i>Odśwież Pipedrive`; }
+    leadsFilter();
+  }
+
+  function leadsOpenAdd() {
+    document.getElementById("lead-product").value = "";
+    document.getElementById("lead-base").value = "";
+    document.getElementById("lead-base").dataset.manual = "";
+    document.getElementById("lead-supplier").value = "";
+    document.getElementById("lead-email").value = "";
+    document.getElementById("lead-notes").value = "";
+    _getLeadModal().show();
+  }
+
+  async function leadsSave() {
+    const product = document.getElementById("lead-product").value.trim();
+    const supplier = document.getElementById("lead-supplier").value.trim();
+    if (!product || !supplier) { toast("Wypełnij nazwę produktu i dostawcę", "warning"); return; }
+
+    const payload = {
+      category:      document.getElementById("lead-cat").value,
+      product_name:  product,
+      base_name:     document.getElementById("lead-base").value.trim() || null,
+      supplier,
+      contact_email: document.getElementById("lead-email").value.trim() || null,
+      notes:         document.getElementById("lead-notes").value.trim() || null,
+    };
+
+    try {
+      await apiFetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      _getLeadModal().hide();
+      toast("Dodano do katalogu", "success");
+      await loadLeads();
+      // Update nav badge
+      const badge = document.getElementById("leads-badge");
+      if (badge) {
+        badge.textContent = _leadsData.length;
+        badge.style.display = _leadsData.length ? "" : "none";
+      }
+    } catch(e) {
+      toast("Błąd zapisu: " + e.message, "danger");
+    }
+  }
+
+  async function leadsDelete(id) {
+    if (!confirm("Usunąć ten wpis z katalogu?")) return;
+    try {
+      await apiFetch(`/api/leads/${id}`, { method: "DELETE" });
+      toast("Usunięto", "secondary");
+      await loadLeads();
+    } catch(e) {
+      toast("Błąd: " + e.message, "danger");
+    }
   }
 
 })();

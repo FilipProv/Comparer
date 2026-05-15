@@ -1,0 +1,159 @@
+﻿Grup base_name: 72
+
+  [Alpha Lipoic Acid]
+  [Ascorbic Acid]
+Ôľ╝ [Ashwagandha]
+     ÔÇó Ashwagandha Extract 5% Withanolides
+     ÔÇó Ashwagandha KSM-66
+     ÔÇó Ashwagandha KSM-66 2,5%
+     ÔÇó Ashwagandha Root Extract 5% Withanolides
+  [Askorbinian sodu]
+Ôľ╝ [AstaPure]
+     ÔÇó AstaPure 2% Astaxanthin Veg Beadlets
+     ÔÇó AstaPure DXT 5% Astaxanthin Oleoresin
+     ÔÇó AstaPure EXT 10% Astaxanthin Oleoresin
+     ÔÇó AstaPure WXT 20% Astaxanthin Oleoresin
+     ÔÇó AstaPure Whole Algae Powder
+Ôľ╝ [Astaxanthin]
+     ÔÇó Astaxanthin 2%
+     ÔÇó Astaxanthin 2% Natural
+     ÔÇó Astaxanthin 5% Natural
+  [Berberine]
+Ôľ╝ [Biotin]
+     ÔÇó Biotin (Vitamin B7/H) D-Biotin
+     ÔÇó Biotin (Vitamin H) D-Biotin
+  [Boron Citrate]
+Ôľ╝ [Boron Glycinate]
+     ÔÇó Boron Glycinate
+     ÔÇó Boron Glycinate / Boron Bisglycinate
+     ÔÇó Boron Glycinate / Boron Bisglycinate 98%
+     ÔÇó Boron Glycinate 3-5%
+     ÔÇó Boron Glycinate 5%
+Ôľ╝ [Bovine Collagen]
+     ÔÇó Bovine Collagen
+     ÔÇó Bovine Collagen Colpropur Plus Quick
+     ÔÇó Bovine Collagen Colpropur Premium Quick
+Ôľ╝ [Bromelain]
+     ÔÇó Bromelain 2400GDU/g
+     ÔÇó Bromelain 2500 GDU/g
+     ÔÇó Bromelain 25000 GDU
+     ÔÇó Bromelain 2500GDU/g
+     ÔÇó Bromelain Retard
+  [Calcium D-Pantothenate]
+Ôľ╝ [Calcium L-5-MTHF]
+     ÔÇó Calcium L-5-MTHF (Methyltetrahydrofolate)
+     ÔÇó Calcium L-5-MTHF Glucosamine Salt
+Ôľ╝ [Cholecalciferol]
+     ÔÇó Cholecalciferol (Vitamin D3)
+     ÔÇó Cholecalciferol (Vitamin D3) 100,000 IU/g
+  [Chondroitin Sulfate]
+  [Chromium Picolinate]
+  [Citicoline]
+  [Coenzyme Q10]
+Ôľ╝ [Cordyceps]
+     ÔÇó Cordyceps Extract
+     ÔÇó Cordyceps Extract Prime
+     ÔÇó Cordyceps sinensis Extract 10:1 30% Polysaccharides
+  [Coriolus]
+Ôľ╝ [Creatine Monohydrate]
+     ÔÇó Creatine Monohydrate
+     ÔÇó Creatine Monohydrate 200 mesh
+     ÔÇó Creatine Monohydrate 80 mesh
+  [Cytrynian magnezu]
+  [Cytrynian wapnia]
+Ôľ╝ [Fish Collagen]
+     ÔÇó Fish Collagen
+     ÔÇó Fish Collagen Amita Coll Blue
+Ôľ╝ [Folic Acid]
+     ÔÇó Folic Acid (Vitamin B9)
+     ÔÇó Folic Acid / Calcium L-5-MTHF (Vitamin B9)
+Ôľ╝ [Gelatin]
+     ÔÇó Gelatin 00#
+     ÔÇó Gelatin 1#
+     ÔÇó Gelatin 3#
+Ôľ╝ [Ginseng Extract]
+     ÔÇó Ginseng Extract 16% Ginsenosides
+     ÔÇó Ginseng Root & Leaf Extract 5% Ginsenosides
+     ÔÇó Ginseng Root & Leaf Extract DER 2:1
+Ôľ╝ [Glucosamine]
+     ÔÇó Glucosamine 2KCl
+     ÔÇó Glucosamine Sulfate
+  [Glutamina]
+  [Griffonia]
+Ôľ╝ [HPMC]
+     ÔÇó HPMC 0#
+     ÔÇó HPMC 00#
+     ÔÇó HPMC 3#
+Ôľ╝ [Huperzia Serrata]
+     ÔÇó Huperzia Serrata Extract 0.2% Huperzine A
+     ÔÇó Huperzia Serrata Extract 1% Huperzine A
+  [Inositol]
+  [Inozytol]
+  [Inulin]
+  [Inulina]
+  [Iron Bisglycinate]
+  [Iron Fumarate]
+  [Lithium Orotate]
+  [MSM]
+Ôľ╝ [Magnesium Bisglycinate]
+     ÔÇó Magnesium Bisglycinate 12%
+     ÔÇó Magnesium Bisglycinate 20%
+  [Marine Collagen]
+  [Melatonin]
+Ôľ╝ [Methylcobalamin]
+     ÔÇó Methylcobalamin 1% (Vitamin B12)
+     ÔÇó Methylcobalamin Pure (Vitamin B12)
+  [Microcrystalline Cellulose]
+  [Milk Thistle]
+Ôľ╝ [Myo-Inositol]
+     ÔÇó Myo-Inositol
+     ÔÇó Myo-Inositol 98%
+  [N-Acetyl-L-Cysteine]
+  [Niacin]
+  [Nicotinamide]
+  [Piperine]
+  [Potassium Iodide]
+  [Pyridoxal HCl]
+Ôľ╝ [Pyridoxal-5-Phosphate]
+     ÔÇó Pyridoxal-5-Phosphate (P5P)
+     ÔÇó Pyridoxal-5-Phosphate Monohydrate (P5P)
+  [Pyridoxine HCl]
+  [Riboflavin]
+  [Shilajit]
+  [Siarczan chondroityny]
+Ôľ╝ [Sodium Butyrate]
+     ÔÇó Sodium Butyrate
+     ÔÇó Sodium Butyrate 90% Coated Powder
+     ÔÇó Sodium Butyrate 98% Regular Powder
+Ôľ╝ [Sodium Hyaluronate]
+     ÔÇó Sodium Hyaluronate / Hyaluronic Acid
+     ÔÇó Sodium Hyaluronate 100 kDa
+     ÔÇó Sodium Hyaluronate 300 kDa
+     ÔÇó Sodium Hyaluronate <10 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal 100-600 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal 1000-1600 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal 1600-2000 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal 20-100 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal 600-1000 kDa
+     ÔÇó Sodium Hyaluronate SinoHyal <10 kDa
+  [Spirulina]
+Ôľ╝ [Taurine]
+     ÔÇó Taurine
+     ÔÇó Taurine 98%
+  [Tauryna]
+Ôľ╝ [Thiamine HCl]
+     ÔÇó Thiamine HCl (Vitamin B1)
+     ÔÇó Vitamin B1 Thiamine HCl
+  [Turkey Tail]
+  [Turmeric Extract]
+Ôľ╝ [Vitamin A]
+     ÔÇó Vitamin A Acetate 500,000 IU/g
+     ÔÇó Vitamin A Retinyl Acetate
+     ÔÇó Vitamin A Retinyl Acetate 325,000 IU/g
+  [Vitamin B-Complex]
+  [Vitamin K2 MK-4]
+Ôľ╝ [Vitamin K2 MK-7]
+     ÔÇó Vitamin K2 MK-7 1%
+     ÔÇó Vitamin K2 MK-7 1% Natto Powder
+     ÔÇó Vitamin K2 MK-7 2000 PPM Powder Synthetic
+  [Zinc Picolinate]

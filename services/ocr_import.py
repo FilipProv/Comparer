@@ -22,6 +22,37 @@ GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
+CATALOG_SYSTEM_PROMPT = """Jesteś ekspertem od odczytywania ofert i cenników dostawców.
+Przeanalizuj podany tekst i wyodrębnij WSZYSTKIE produkty/substancje — nawet jeśli NIE MA cen.
+Interesują Cię: nazwy substancji, informacje o dostępności, MOQ, dostawca, email kontaktowy.
+
+Zwróć JSON (tablicę obiektów) w dokładnie takim formacie:
+[
+  {
+    "product_name": "Pełna nazwa z wariantem np. Acerola organic 17% vC",
+    "base_name": "Bazowa nazwa substancji bez specyfikacji np. Acerola",
+    "supplier": "Nazwa dostawcy (jeśli widoczna, inaczej null)",
+    "moq": 25,
+    "unit": "kg",
+    "category": "substancja_czynna",
+    "notes": "Dodatkowe uwagi np. 'dostępny', '500 kg dostępny', 'dostępno marzec/kwiecień'",
+    "contact_email": null
+  }
+]
+
+Zasady:
+- Wyodrębnij KAŻDY produkt/substancję widoczny w tekście, bez względu na to czy jest cena
+- product_name: pełna nazwa wraz z wariantem/specyfikacją (procent, forma, ekstrakt itp.)
+- base_name: bazowa (generyczna) nazwa substancji BEZ specyfikacji — np. "Acerola", "Chlorella", "Spirulina"
+- moq: minimalne zamówienie w jednostkach (liczba) — jeśli widoczne "MOQ=25" → 25; jeśli brak → null
+- unit: "kg", "g", "szt", "l" — zgadnij z kontekstu, domyślnie "kg"
+- category: "substancja_czynna" dla substancji/suplementów, "opakowanie" dla opakowań, "kapsula" dla kapsułek
+- notes: informacje o dostępności, terminie, ilości dostępnej — wklej dosłownie z tekstu
+- supplier: szukaj nazwy firmy w nagłówku, stopce, podpisie emaila. Jeśli brak — null
+- contact_email: adres email jeśli widoczny
+- Zwróć TYLKO czysty JSON bez markdown, komentarzy ani wyjaśnień
+"""
+
 SYSTEM_PROMPT = """Jesteś ekspertem od odczytywania cenników i wycen ofertowych.
 Przeanalizuj podany obraz lub tekst i wyodrębnij WSZYSTKIE pozycje cenowe.
 
@@ -136,7 +167,7 @@ _GROQ_TEXT_MODELS = [
 ]
 
 
-def _call_groq(content_parts: list[dict]) -> list[dict]:
+def _call_groq(content_parts: list[dict], system_prompt: str = SYSTEM_PROMPT) -> list[dict]:
     """Call Groq with automatic model fallback and retry on rate limits."""
     import time
     from groq import Groq, RateLimitError
@@ -174,7 +205,7 @@ def _call_groq(content_parts: list[dict]) -> list[dict]:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user",   "content": user_parts},
                     ],
                     max_tokens=8192,
@@ -200,7 +231,7 @@ def _call_groq(content_parts: list[dict]) -> list[dict]:
 
 # ─── Gemini provider ──────────────────────────────────────────────────────────
 
-def _call_gemini(content_parts: list[dict]) -> list[dict]:
+def _call_gemini(content_parts: list[dict], system_prompt: str = SYSTEM_PROMPT) -> list[dict]:
     """Call Google Gemini via new google-genai SDK."""
     from google import genai
     from google.genai import types
@@ -208,7 +239,7 @@ def _call_gemini(content_parts: list[dict]) -> list[dict]:
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     # Build parts list for the new SDK
-    parts = [types.Part.from_text(text=SYSTEM_PROMPT)]
+    parts = [types.Part.from_text(text=system_prompt)]
     for part in content_parts:
         if part["type"] == "text":
             parts.append(types.Part.from_text(text=part["text"]))
@@ -233,7 +264,7 @@ def _call_gemini(content_parts: list[dict]) -> list[dict]:
 
 # ─── OpenAI provider ──────────────────────────────────────────────────────────
 
-def _call_openai(content_parts: list[dict]) -> list[dict]:
+def _call_openai(content_parts: list[dict], system_prompt: str = SYSTEM_PROMPT) -> list[dict]:
     """Call OpenAI GPT-4o (paid)."""
     from openai import OpenAI
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -241,7 +272,7 @@ def _call_openai(content_parts: list[dict]) -> list[dict]:
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user",   "content": content_parts},
         ],
         max_tokens=4096,
@@ -253,14 +284,42 @@ def _call_openai(content_parts: list[dict]) -> list[dict]:
 
 # ─── Sanitize ─────────────────────────────────────────────────────────────────
 
-def _sanitize(rows: list[dict]) -> list[dict]:
+def _sanitize(rows: list[dict], catalog_mode: bool = False) -> list[dict]:
     """Validate and clean extracted rows, fill defaults."""
     clean = []
     valid_currencies = {"PLN", "EUR", "USD"}
     valid_categories = {"substancja_czynna", "opakowanie", "kapsula"}
 
     for r in rows:
-        if not r.get("product_name") or not r.get("price_original"):
+        if not r.get("product_name"):
+            continue
+
+        category = str(r.get("category") or "substancja_czynna").lower()
+        if category not in valid_categories:
+            category = "substancja_czynna"
+
+        try:
+            moq = float(str(r["moq"]).replace(",", ".")) if r.get("moq") else None
+        except (ValueError, TypeError):
+            moq = None
+
+        if catalog_mode:
+            # Catalog mode — no price required
+            clean.append({
+                "product_name":  str(r["product_name"]).strip(),
+                "base_name":     str(r.get("base_name") or "").strip() or None,
+                "supplier":      str(r["supplier"]).strip() if r.get("supplier") else None,
+                "moq":           moq,
+                "unit":          str(r.get("unit") or "kg").strip(),
+                "category":      category,
+                "notes":         str(r.get("notes") or "").strip() or None,
+                "contact_email": r.get("contact_email") or None,
+                "_source":       "ocr_catalog",
+            })
+            continue
+
+        # Normal quotation mode — price required
+        if not r.get("price_original"):
             continue
         try:
             price = float(str(r["price_original"]).replace(",", "."))
@@ -273,22 +332,14 @@ def _sanitize(rows: list[dict]) -> list[dict]:
         if currency not in valid_currencies:
             currency = "PLN"
 
-        category = str(r.get("category") or "substancja_czynna").lower()
-        if category not in valid_categories:
-            category = "substancja_czynna"
-
         try:
             qty = float(str(r.get("quantity") or 1).replace(",", "."))
         except (ValueError, TypeError):
             qty = 1.0
 
-        try:
-            moq = float(str(r["moq"]).replace(",", ".")) if r.get("moq") else None
-        except (ValueError, TypeError):
-            moq = None
-
         clean.append({
             "product_name":   str(r["product_name"]).strip(),
+            "base_name":      str(r.get("base_name") or "").strip() or None,
             "supplier":       str(r["supplier"]).strip() if r.get("supplier") else None,
             "price_original": round(price, 4),
             "currency":       currency,
@@ -366,7 +417,7 @@ def _enrich_supplier_from_email(rows: list[dict]) -> list[dict]:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-async def extract_from_file(filename: str, file_bytes: bytes) -> list[dict]:
+async def extract_from_file(filename: str, file_bytes: bytes, catalog_mode: bool = False) -> list[dict]:
     """
     Accepts any file, returns extracted quotation rows.
     Uses Gemini if GEMINI_API_KEY set, otherwise OpenAI.
@@ -454,19 +505,23 @@ async def extract_from_file(filename: str, file_bytes: bytes) -> list[dict]:
     if not content_parts:
         raise ValueError("Nie udało się przetworzyć pliku.")
 
-    content_parts.insert(0, {
-        "type": "text",
-        "text": f"Plik: {filename}\nWyodrębnij wszystkie wyceny produktów z poniższego dokumentu:",
-    })
+    intro_text = (
+        f"Plik: {filename}\nWyodrębnij wszystkie produkty/substancje z poniższego dokumentu (bez względu na brak ceny):"
+        if catalog_mode else
+        f"Plik: {filename}\nWyodrębnij wszystkie wyceny produktów z poniższego dokumentu:"
+    )
+    content_parts.insert(0, {"type": "text", "text": intro_text})
+
+    active_prompt = CATALOG_SYSTEM_PROMPT if catalog_mode else SYSTEM_PROMPT
 
     # ── Choose provider: Groq → Gemini → OpenAI ──────────────────────────────
     if has_groq:
-        rows = _call_groq(content_parts)
+        rows = _call_groq(content_parts, system_prompt=active_prompt)
     elif has_gemini:
-        rows = _call_gemini(content_parts)
+        rows = _call_gemini(content_parts, system_prompt=active_prompt)
     else:
-        rows = _call_openai(content_parts)
+        rows = _call_openai(content_parts, system_prompt=active_prompt)
 
-    rows = _sanitize(rows)
+    rows = _sanitize(rows, catalog_mode=catalog_mode)
     rows = _enrich_supplier_from_email(rows)
     return rows

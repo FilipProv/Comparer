@@ -4,18 +4,22 @@ Serves the frontend SPA and exposes a REST API.
 Backend: MongoDB Atlas (pymongo).
 """
 
+import hashlib
+import hmac
 import io
 import json
 import os
 import re
+import secrets
 from collections import defaultdict
 from datetime import datetime, date
 from typing import Optional
 
 import pandas as pd
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from pymongo.database import Database
 
 import models
@@ -44,6 +48,77 @@ import services.inbox as inbox_svc
 import asyncio
 
 app = FastAPI(title="Comparer — Porównywarka Wycen Ofertowych", version="2.0.0")
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+# SHA-256 hash of admin password
+_ADMIN_HASH = "dc802c5112e1768d1ff921c34817c1999da6c52c6902d5c71518127b2251b2f2"
+_SESSION_COOKIE = "comparer_sess"
+_SESSION_MAX_AGE = 8 * 3600  # 8 hours
+_serializer: Optional[URLSafeTimedSerializer] = None
+
+_PUBLIC_PATHS = {"/", "/api/auth/login"}
+_PUBLIC_PREFIXES = ("/static/",)
+
+
+def _verify_password(password: str) -> bool:
+    h = hashlib.sha256(password.encode()).hexdigest()
+    return hmac.compare_digest(h, _ADMIN_HASH)
+
+
+def _make_session_token() -> str:
+    assert _serializer is not None
+    return _serializer.dumps({"u": "admin"})
+
+
+def _verify_session_token(token: str) -> bool:
+    if _serializer is None:
+        return False
+    try:
+        _serializer.loads(token, max_age=_SESSION_MAX_AGE)
+        return True
+    except (BadSignature, SignatureExpired, Exception):
+        return False
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        return await call_next(request)
+    token = request.cookies.get(_SESSION_COOKIE)
+    if not token or not _verify_session_token(token):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
+
+@app.post("/api/auth/login", tags=["Auth"])
+async def auth_login(data: dict, response: Response):
+    password = (data.get("password") or "").strip()
+    if not _verify_password(password):
+        raise HTTPException(status_code=401, detail="Nieprawidłowe hasło")
+    token = _make_session_token()
+    response.set_cookie(
+        key=_SESSION_COOKIE,
+        value=token,
+        max_age=_SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout", tags=["Auth"])
+async def auth_logout(response: Response):
+    response.delete_cookie(key=_SESSION_COOKIE, samesite="lax")
+    return {"ok": True}
+
+
+@app.get("/api/auth/check", tags=["Auth"])
+async def auth_check():
+    return {"ok": True, "user": "admin"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -171,6 +246,15 @@ async def _inbox_background_loop():
 
 @app.on_event("startup")
 async def startup_event():
+    global _serializer
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    secret = os.getenv("SESSION_SECRET")
+    if not secret:
+        secret = secrets.token_hex(32)
+        with open(env_path, "a", encoding="utf-8") as _f:
+            _f.write(f"\nSESSION_SECRET={secret}\n")
+        os.environ["SESSION_SECRET"] = secret
+    _serializer = URLSafeTimedSerializer(secret)
     asyncio.create_task(_inbox_background_loop())
 
 
@@ -459,6 +543,46 @@ async def confirm_mapping(
                 r["supplier"] = supplier_override
     saved, import_errors = await _insert_rows_from_list(rows, errors, db)
     return {"saved": saved, "skipped": len(rows) - saved + len(errors), "errors": import_errors}
+
+
+@app.post("/api/import/map/catalog", status_code=201, tags=["Import / Eksport"])
+async def confirm_mapping_catalog(
+    file: UploadFile = File(...),
+    mapping_json: str = Query(...),
+    supplier_override: Optional[str] = Query(None),
+    db: Database = Depends(get_db),
+):
+    """Apply column mapping but save rows as supplier leads (catalog) instead of quotations."""
+    try:
+        mapping = json.loads(mapping_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Nieprawidłowy JSON mappingu")
+    content = await file.read()
+    # re-use apply_column_mapping but with relaxed required fields (only product_name + supplier)
+    from services.excel_import import apply_column_mapping_catalog
+    rows, errors = apply_column_mapping_catalog(content, mapping)
+    if supplier_override:
+        for r in rows:
+            if not r.get("supplier"):
+                r["supplier"] = supplier_override
+    saved = 0
+    for row in rows:
+        if not row.get("product_name") or not row.get("supplier"):
+            errors.append(f"Pominięto: brak produktu lub dostawcy")
+            continue
+        lead = {
+            "id": next_id("supplier_leads"),
+            "created_at": datetime.now().isoformat(),
+            "product_name": str(row["product_name"]).strip(),
+            "base_name": str(row.get("base_name") or "").strip() or None,
+            "supplier": str(row["supplier"]).strip(),
+            "category": str(row.get("category") or "substancja_czynna"),
+            "contact_email": str(row.get("contact_email") or "").strip() or None,
+            "notes": str(row.get("notes") or row.get("spec_label") or "").strip() or None,
+        }
+        db.supplier_leads.insert_one(lead)
+        saved += 1
+    return {"saved": saved, "skipped": len(rows) - saved + len(errors), "errors": errors}
 
 
 @app.post("/api/import/native/preview", tags=["Import / Eksport"])
@@ -845,7 +969,11 @@ async def download_upload(filename: str):
 
 
 @app.post("/api/import/ocr", tags=["Import"])
-async def import_ocr(file: UploadFile = File(...), db: Database = Depends(get_db)):
+async def import_ocr(
+    file: UploadFile = File(...),
+    catalog_mode: bool = Query(False),
+    db: Database = Depends(get_db),
+):
     content = await file.read()
     from datetime import datetime as dt
     import uuid
@@ -856,7 +984,7 @@ async def import_ocr(file: UploadFile = File(...), db: Database = Depends(get_db
     with open(saved_path, "wb") as f:
         f.write(content)
     try:
-        rows = await ocr_extract_from_file(orig_name, content)
+        rows = await ocr_extract_from_file(orig_name, content, catalog_mode=catalog_mode)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1205,6 +1333,60 @@ def supplier_offers(supplier_name: str, db: Database = Depends(get_db)):
 @app.get("/api/suppliers/{supplier_name}/pipedrive", tags=["Dostawcy"])
 async def supplier_pipedrive(supplier_name: str):
     return await get_supplier_pipedrive(supplier_name)
+
+
+# ── Katalog dostawców (leads bez wyceny) ──────────────────────────────────────
+
+@app.get("/api/leads", tags=["Katalog"])
+def list_leads(db: Database = Depends(get_db)):
+    docs = list(db.supplier_leads.find({}, {"_id": 0}).sort("product_name", 1))
+    return docs
+
+@app.post("/api/leads", status_code=201, tags=["Katalog"])
+def create_lead(payload: dict, db: Database = Depends(get_db)):
+    if not payload.get("product_name") or not payload.get("supplier"):
+        raise HTTPException(status_code=422, detail="product_name i supplier są wymagane")
+    lead = {
+        "id": next_id("supplier_leads"),
+        "created_at": datetime.now().isoformat(),
+        "product_name": str(payload["product_name"]).strip(),
+        "base_name": str(payload.get("base_name") or "").strip() or None,
+        "supplier": str(payload["supplier"]).strip(),
+        "category": str(payload.get("category") or "substancja_czynna"),
+        "contact_email": str(payload.get("contact_email") or "").strip() or None,
+        "notes": str(payload.get("notes") or "").strip() or None,
+    }
+    db.supplier_leads.insert_one(lead)
+    lead.pop("_id", None)
+    return lead
+
+@app.post("/api/leads/bulk", status_code=201, tags=["Katalog"])
+def create_leads_bulk(payload: list[dict], db: Database = Depends(get_db)):
+    saved = []
+    for item in payload:
+        if not item.get("product_name") or not item.get("supplier"):
+            continue
+        lead = {
+            "id": next_id("supplier_leads"),
+            "created_at": datetime.now().isoformat(),
+            "product_name": str(item["product_name"]).strip(),
+            "base_name": str(item.get("base_name") or "").strip() or None,
+            "supplier": str(item["supplier"]).strip(),
+            "category": str(item.get("category") or "substancja_czynna"),
+            "contact_email": str(item.get("contact_email") or "").strip() or None,
+            "notes": str(item.get("notes") or "").strip() or None,
+        }
+        db.supplier_leads.insert_one(lead)
+        lead.pop("_id", None)
+        saved.append(lead)
+    return {"saved": len(saved)}
+
+@app.delete("/api/leads/{lead_id}", tags=["Katalog"])
+def delete_lead(lead_id: int, db: Database = Depends(get_db)):
+    result = db.supplier_leads.delete_one({"id": lead_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Nie znaleziono")
+    return {"ok": True}
 
 
 # ── SMTP / Pipedrive config ───────────────────────────────────────────────────

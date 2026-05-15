@@ -10,6 +10,32 @@
 </head>
 <body>
 
+<!-- ── Login overlay ── -->
+<div id="login-overlay" style="display:flex;position:fixed;inset:0;z-index:9999;background:rgba(18,24,36,.93);align-items:center;justify-content:center;">
+  <div class="card shadow-lg" style="width:100%;max-width:380px;border:0;border-radius:16px;overflow:hidden;">
+    <div style="background:#1a6b3c;padding:28px 32px 18px;text-align:center;">
+      <i class="bi bi-bar-chart-line-fill text-white" style="font-size:2.2rem;"></i>
+      <h4 class="text-white mt-2 mb-0 fw-bold">Comparer</h4>
+      <small class="text-white-50">Porównywarka Wycen Ofertowych</small>
+    </div>
+    <div class="card-body p-4">
+      <p class="text-muted small text-center mb-3">Zaloguj się jako <strong>admin</strong></p>
+      <div id="login-error" class="alert alert-danger py-2 small" style="display:none;"></div>
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Hasło</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+          <input id="login-password" type="password" class="form-control" placeholder="••••••••••••"
+                 onkeydown="if(event.key==='Enter')App.login()">
+        </div>
+      </div>
+      <button id="login-btn" class="btn btn-success w-100 fw-semibold" onclick="App.login()">
+        <i class="bi bi-box-arrow-in-right me-2"></i>Zaloguj
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Spinner overlay ── -->
 <div id="spinner-overlay">
   <div class="spinner-border text-light" style="width:3rem;height:3rem;" role="status"></div>
@@ -31,6 +57,9 @@
     </span>
     <button class="btn btn-sm btn-outline-light" onclick="App.refreshRates()" title="Odśwież kursy">
       <i class="bi bi-arrow-clockwise"></i>
+    </button>
+    <button class="btn btn-sm btn-outline-danger" onclick="App.logout()" title="Wyloguj">
+      <i class="bi bi-box-arrow-right"></i>
     </button>
   </div>
 </nav>
@@ -63,6 +92,13 @@
     <li class="nav-item">
       <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-suppliers" id="tab-suppliers-btn">
         <i class="bi bi-building me-1"></i>Dostawcy
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-leads" id="tab-leads-btn"
+        onclick="App.loadLeads()">
+        <i class="bi bi-journal-bookmark me-1"></i>Katalog dostawców
+        <span id="leads-badge" class="badge bg-secondary ms-1" style="display:none">0</span>
       </button>
     </li>
     <li class="nav-item">
@@ -765,7 +801,8 @@
                   <div class="mb-2">
                     <label class="form-label form-label-sm fw-semibold">Dostawca <span class="text-muted fw-normal">(opcjonalnie — nadpisuje AI)</span></label>
                     <input type="text" class="form-control form-control-sm" id="add-ocr-supplier"
-                      list="add-ocr-supplier-list" placeholder="np. Aogubio">
+                      list="add-ocr-supplier-list" placeholder="np. Aogubio"
+                      oninput="App.ocrSupplierPropagate(this.value,'add-ocr-sup-')">
                     <datalist id="add-ocr-supplier-list"></datalist>
                     <div id="add-ocr-supplier-hint" class="mt-1"></div>
                   </div>
@@ -800,6 +837,16 @@
                       <label class="form-label form-label-sm fw-semibold">Ważna do</label>
                       <input type="date" class="form-control form-control-sm" id="ocr-global-valid-until">
                     </div>
+                  </div>
+
+                  <!-- Catalog mode toggle -->
+                  <div class="form-check form-switch mb-1" id="ocr-catalog-wrap">
+                    <input class="form-check-input" type="checkbox" id="ocr-catalog-mode"
+                      onchange="App.ocrCatalogToggle(this.checked)">
+                    <label class="form-check-label fw-semibold small" for="ocr-catalog-mode">
+                      <i class="bi bi-journal-bookmark me-1 text-primary"></i>Importuj do Katalogu dostawców
+                    </label>
+                    <div class="text-muted" style="font-size:.75rem;margin-left:2.5rem">Bez ceny — tylko substancja i dostawca</div>
                   </div>
 
                   <!-- Analyze btn -->
@@ -875,7 +922,8 @@
                   <div>
                     <label class="form-label form-label-sm fw-semibold">Dostawca <span class="text-muted fw-normal">(opcjonalnie)</span></label>
                     <input type="text" class="form-control form-control-sm" id="paste-text-supplier"
-                      list="add-ocr-supplier-list" placeholder="np. Aogubio">
+                      list="add-ocr-supplier-list" placeholder="np. Aogubio"
+                      oninput="App.ocrSupplierPropagate(this.value,'paste-sup-')">
                   </div>
 
                   <div class="row g-2">
@@ -907,6 +955,16 @@
                       <label class="form-label form-label-sm fw-semibold">Ważna do</label>
                       <input type="date" class="form-control form-control-sm" id="paste-global-valid-until">
                     </div>
+                  </div>
+
+                  <!-- Catalog mode toggle -->
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="paste-catalog-mode"
+                      onchange="App.pasteCatalogToggle(this.checked)">
+                    <label class="form-check-label fw-semibold small" for="paste-catalog-mode">
+                      <i class="bi bi-journal-bookmark me-1 text-primary"></i>Importuj do Katalogu dostawców
+                    </label>
+                    <div class="text-muted" style="font-size:.75rem;margin-left:2.5rem">Bez ceny — tylko substancja i dostawca</div>
                   </div>
 
                   <div class="mt-auto">
@@ -1087,6 +1145,106 @@
     </div>
 
     <!-- ════════════════════════════════════════════
+         TAB — Katalog dostawców (leads bez wyceny)
+    ════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tab-leads">
+      <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <div>
+          <h5 class="mb-0"><i class="bi bi-journal-bookmark me-2 text-primary"></i>Katalog dostawców</h5>
+          <p class="text-muted small mb-0 mt-1">Dostawcy oferujący substancje, dla których nie masz jeszcze wyceny — wiedz do kogo napisać.</p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary" id="leads-pipedrive-btn" onclick="App.leadsMatchPipedrive()">
+            <i class="bi bi-person-lines-fill me-1"></i>Dopasuj z Pipedrive
+          </button>
+          <button class="btn btn-primary" onclick="App.leadsOpenAdd()">
+            <i class="bi bi-plus-circle me-1"></i>Dodaj dostawcę
+          </button>
+        </div>
+      </div>
+
+      <!-- Search + filter bar -->
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <input type="text" class="form-control form-control-sm" id="leads-search"
+          placeholder="Szukaj substancji lub dostawcy…" style="max-width:280px"
+          oninput="App.leadsFilter()">
+        <select class="form-select form-select-sm" id="leads-cat-filter" style="max-width:170px"
+          onchange="App.leadsFilter()">
+          <option value="">Wszystkie kategorie</option>
+          <option value="substancja_czynna">Substancje czynne</option>
+          <option value="opakowanie">Opakowania</option>
+          <option value="kapsula">Kapsułki</option>
+        </select>
+        <span id="leads-count" class="badge bg-secondary align-self-center" style="display:none"></span>
+      </div>
+
+      <!-- Results -->
+      <div id="leads-wrap">
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-journal-bookmark fs-1 d-block mb-2 opacity-25"></i>
+          Brak wpisów — dodaj dostawcę oferującego substancję bez wyceny.
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: dodaj lead -->
+    <div class="modal fade" id="leadAddModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Dodaj dostawcę do katalogu</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label fw-semibold">Kategoria</label>
+                <select class="form-select" id="lead-cat">
+                  <option value="substancja_czynna">Substancja czynna</option>
+                  <option value="opakowanie">Opakowanie</option>
+                  <option value="kapsula">Kapsułka</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Nazwa substancji / produktu *</label>
+                <input type="text" class="form-control" id="lead-product"
+                  placeholder="np. Sodium Butyrate 98% regular powder"
+                  oninput="(function(el){const b=document.getElementById('lead-base');if(!b.dataset.manual)b.value=el.value.replace(/\s*\d[\d.,]*\s*%?.*/,'').trim()})(this)">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Substancja bazowa <span class="text-muted fw-normal small">(do grupowania)</span></label>
+                <input type="text" class="form-control" id="lead-base"
+                  placeholder="np. Sodium Butyrate"
+                  oninput="this.dataset.manual='1'">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Dostawca *</label>
+                <input type="text" class="form-control" id="lead-supplier"
+                  placeholder="np. Aogubio" list="add-ocr-supplier-list">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">E-mail kontaktowy</label>
+                <input type="email" class="form-control" id="lead-email"
+                  placeholder="np. sales@supplier.com">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Uwagi</label>
+                <textarea class="form-control" id="lead-notes" rows="2"
+                  placeholder="np. oferują próbki, certyfikat COA dostępny…"></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
+            <button class="btn btn-primary" onclick="App.leadsSave()">
+              <i class="bi bi-check2-circle me-1"></i>Zapisz
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
          TAB — Skrzynka wycen (IMAP Inbox)
     ════════════════════════════════════════════ -->
     <div class="tab-pane fade" id="tab-inbox">
@@ -1171,11 +1329,19 @@
                   </button>
                 </div>
               </div>
-              <div class="mt-2">
+              <div class="mt-2 d-flex align-items-center gap-3 flex-wrap">
                 <a href="/api/export/template" class="btn btn-outline-success btn-sm">
                   <i class="bi bi-download me-1"></i>Pobierz nasz szablon Excel
                 </a>
-                <span class="text-muted small ms-2">← jeśli chcesz wypełnić gotowy formularz zamiast mapować</span>
+                <span class="text-muted small">← jeśli chcesz wypełnić gotowy formularz zamiast mapować</span>
+              </div>
+              <div class="form-check form-switch mt-3">
+                <input class="form-check-input" type="checkbox" id="map-catalog-mode"
+                  onchange="App.mapCatalogToggle(this.checked)">
+                <label class="form-check-label fw-semibold small" for="map-catalog-mode">
+                  <i class="bi bi-journal-bookmark me-1 text-primary"></i>Importuj do Katalogu dostawców
+                </label>
+                <div class="text-muted" style="font-size:.75rem;margin-left:2.5rem">Bez ceny — tylko substancja i dostawca</div>
               </div>
             </div>
           </div>
@@ -1218,7 +1384,7 @@
                     <i class="bi bi-file-earmark-arrow-down me-1"></i>Pobierz jako szablon Excel
                   </button>
                   <button class="btn btn-success" id="map-import-btn" onclick="App.mapImport()" disabled>
-                    <i class="bi bi-check2-circle me-1"></i>Importuj bezpośrednio do bazy
+                    <i class="bi bi-check2-circle me-1"></i><span id="map-import-btn-label">Importuj bezpośrednio do bazy</span>
                   </button>
                 </div>
 
